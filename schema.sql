@@ -31,6 +31,10 @@ create table if not exists public.days (
 alter table public.profile enable row level security;
 alter table public.days    enable row level security;
 
+-- Dropped first so the whole file is safe to re-run
+drop policy if exists "own profile" on public.profile;
+drop policy if exists "own days" on public.days;
+
 create policy "own profile" on public.profile
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
