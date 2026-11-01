@@ -981,6 +981,14 @@ const CHAT_PROMPTS = ['How am I tracking?', "Why isn't the scale moving?", 'Give
 function renderCoach() {
   syncChat();
   const log = loadChat();
+  // What the coach can see right now, so answers feel grounded
+  const t = todayStr(), pl = plan(), st = status();
+  $('#coach-sees').innerHTML = [
+    ['Status', st.label],
+    ['7-day avg', `${fmt1(pl.w)} kg`],
+    ['Food today', `${fmtInt(kcalOf(t))} / ${fmtInt(pl.kcal)}`],
+    ['Move', `${fmtInt(movementOf(t).total)} / ${fmtInt(pl.stepGoal)}`],
+  ].map(([l, v]) => `<div><span>${l}</span><b>${esc(v)}</b></div>`).join('');
   const msgs = [{ role: 'assistant', content: coachGreeting() }, ...log];
   $('#chat').innerHTML = msgs.map((m) => m.role === 'user'
     ? `<div class="msg user">${esc(m.content)}</div>`

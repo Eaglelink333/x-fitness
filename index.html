@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,600&family=Manrope:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=24">
+<link rel="stylesheet" href="style.css?v=25">
 <script>
   // Apply the saved theme before first paint so there's no flash
   try { const t = localStorage.getItem('xf-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
@@ -203,15 +203,21 @@
 
   <!-- Coach chat -->
   <section id="view-coach" class="view" hidden>
-    <div class="coach-head row between">
-      <div class="row gap"><span class="coach-avatar">💪</span><div><div class="strong">Your coach</div><div class="muted small">Nutritionist + PT · sees your tracking</div></div></div>
-      <button class="btn small-btn" id="chat-clear" type="button">Clear</button>
+    <div class="card coach-head">
+      <div class="row between">
+        <div class="row coach-id">
+          <span class="coach-avatar" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.9 4.6 4.6 1.9-4.6 1.9L12 16.5l-1.9-4.6L5.5 10l4.6-1.9z"/><path d="M18.5 15.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z"/></svg></span>
+          <div><h2>Your coach</h2><div class="muted small">Nutritionist &amp; personal trainer</div></div>
+        </div>
+        <button class="text-btn" id="chat-clear" type="button">New chat</button>
+      </div>
+      <div id="coach-sees" class="coach-sees"></div>
     </div>
-    <div id="chat" class="chat"></div>
-    <div id="chat-chips" class="chips"></div>
+    <div id="chat" class="chat" aria-live="polite"></div>
+    <div id="chat-chips" class="chips chat-chips"></div>
     <form id="chat-form" class="composer">
-      <textarea id="chat-input" rows="1" maxlength="1000" placeholder="Ask your coach anything…" enterkeyhint="send"></textarea>
-      <button class="btn primary" id="chat-send" type="submit" aria-label="Send">↑</button>
+      <textarea id="chat-input" rows="1" maxlength="1000" placeholder="Ask your coach anything…" enterkeyhint="send" aria-label="Message your coach"></textarea>
+      <button class="send" id="chat-send" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
     </form>
   </section>
 
@@ -300,7 +306,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=24"></script>
-<script src="app.js?v=24"></script>
+<script src="config.js?v=25"></script>
+<script src="app.js?v=25"></script>
 </body>
 </html>
