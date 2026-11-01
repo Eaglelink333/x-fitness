@@ -420,7 +420,8 @@ function renderToday() {
     `<li><span>${activityOf(a.type).icon} ${esc(activityOf(a.type).label)} <span class="muted">· ${a.mins} min</span></span><span class="row gap"><span class="muted">~${fmtInt(a.kcal)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></span></li>`).join('');
   updateActPreview();
 
-  $('#advice').innerHTML = advice().map((a) => `<li><span class="i">${a.icon}</span><span>${esc(a.t)}</span></li>`).join('');
+  renderAdvice();
+  refreshAdvice();
 }
 
 let recentCache = [];
@@ -666,6 +667,73 @@ $('#quiz-go').addEventListener('click', async () => {
   }
 });
 
+// ---------- Today's advice: daily briefing from the coach (cached on this device) ----------
+const ADVICE_KEY = () => 'xf-advice-' + (user?.id || 'local');
+let adviceBusy = false, adviceErr = '', adviceFailedAt = 0;
+
+function adviceCache() {
+  try { return JSON.parse(localStorage.getItem(ADVICE_KEY())); } catch { return null; }
+}
+const freshAdvice = () => { const c = adviceCache(); return c && c.date === todayStr() ? c : null; };
+// Changes when you log something today, so the briefing can catch up
+function adviceFingerprint() {
+  const d = getDay(todayStr());
+  return [d.foods.length, d.activities.length, d.weight, d.steps].join('|');
+}
+const fmtTime = (ms) => new Date(ms).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' });
+
+function renderAdvice() {
+  const c = freshAdvice();
+  $('#advice-refresh').hidden = !CLOUD;
+  $('#advice-refresh').classList.toggle('spin', adviceBusy);
+  $('#advice-chat').hidden = !CLOUD;
+  $('#advice-headline').hidden = !c;
+  if (c) {
+    $('#advice-headline').textContent = c.headline;
+    $('#advice').innerHTML = c.items.map((a, i) => `<li><span class="i">${esc(a.icon)}</span><span><span class="t">${esc(a.title)}</span>${esc(a.text)}<br><button class="ask" type="button" data-i="${i}">Ask coach →</button></span></li>`).join('');
+    $('#advice-meta').textContent = adviceBusy ? 'Updating with your latest logs…' : `Updated ${fmtTime(c.at)} from your latest data`;
+  } else {
+    // Quick rule-based tips while the briefing loads, offline, or without sync
+    $('#advice').innerHTML = advice().map((a) => `<li><span class="i">${a.icon}</span><span>${esc(a.t)}</span></li>`).join('');
+    $('#advice-meta').textContent = !CLOUD ? '' : adviceBusy ? "✨ Your coach is writing today's advice…" : adviceErr;
+  }
+}
+
+async function refreshAdvice(force = false) {
+  if (!CLOUD || adviceBusy || !profile) return;
+  const c = adviceCache(), fp = adviceFingerprint(), now = Date.now();
+  // New day, or you've logged something and it's been 3+ hours
+  const stale = !c || c.date !== todayStr() || (c.fp !== fp && now - c.at > 3 * 3600e3);
+  if (!force && (!stale || now - adviceFailedAt < 10 * 60e3)) return;
+  adviceBusy = true;
+  adviceErr = '';
+  if (currentView === 'today') renderAdvice();
+  try {
+    const { data, error } = await sb.functions.invoke('food-photo', { body: { mode: 'daily', context: coachContext() } });
+    if (error) throw new Error(await fnError(error));
+    if (!data?.items?.length) throw new Error('No advice came back.');
+    try { localStorage.setItem(ADVICE_KEY(), JSON.stringify({ date: todayStr(), at: Date.now(), fp, headline: data.headline, items: data.items })); } catch {}
+  } catch (err) {
+    adviceFailedAt = Date.now();
+    adviceErr = `Quick tips for now. Coach advice unavailable: ${err.message}`;
+  }
+  adviceBusy = false;
+  if (currentView === 'today') renderAdvice();
+}
+
+function askCoach(question) {
+  show('coach');
+  sendChat(question);
+}
+
+$('#advice-refresh').addEventListener('click', () => refreshAdvice(true));
+$('#advice').addEventListener('click', (e) => {
+  const b = e.target.closest('.ask');
+  const a = b && freshAdvice()?.items[+b.dataset.i];
+  if (a) askCoach(`Tell me more about "${a.title}" from today's advice. What exactly should I do?`);
+});
+$('#advice-chat').addEventListener('click', () => askCoach("Let's go through today. Based on my advice and logs, what should I focus on?"));
+
 // ---------- coach chat (history kept on this device) ----------
 const CHAT_KEY = () => 'xf-chat-' + (user?.id || 'local');
 let chatLog = null;
@@ -714,7 +782,7 @@ function coachContext() {
   }
   const today = getDay(t);
   return {
-    today: t, weekday: DAY_NAMES[new Date().getDay()], name: p.name || null, sex: p.sex === 'f' ? 'female' : 'male',
+    today: t, weekday: DAY_NAMES[new Date().getDay()], local_time: fmtTime(Date.now()), name: p.name || null, sex: p.sex === 'f' ? 'female' : 'male',
     age: p.age, height_cm: p.height_cm, start_weight_kg: p.start_weight, goal_weight_kg: p.goal_weight,
     start_date: p.start_date, goal_date: p.goal_date, days_left: pl.left,
     weight_7day_avg_kg: +fmt1(pl.w), target_weight_today_kg: +fmt1(targetAt(t)), status: st.label,
@@ -725,6 +793,7 @@ function coachContext() {
     todays_workout_in_plan: workouts()[new Date().getDay()].t,
     personal_plan: p.plan ? { summary: p.plan.summary, week: p.plan.week.map((w) => `${w.day}: ${w.title}`) } : null,
     questionnaire: p.answers || null,
+    todays_advice_card: freshAdvice() ? { headline: freshAdvice().headline, points: freshAdvice().items.map((a) => `${a.title}: ${a.text}`) } : null,
     last_14_days: recent,
   };
 }

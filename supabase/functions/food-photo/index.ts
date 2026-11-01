@@ -144,6 +144,62 @@ async function coachReply(messages: unknown, context: unknown) {
   }
 }
 
+// ---------- daily briefing for the Today tab ----------
+const DAILY_SCHEMA = {
+  type: "object",
+  properties: {
+    headline: { type: "string" },
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { icon: { type: "string" }, title: { type: "string" }, text: { type: "string" } },
+        required: ["icon", "title", "text"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["headline", "items"],
+  additionalProperties: false,
+};
+
+const DAILY_TASK = `Write today's advice card for the Today tab of the app. Use the local time to pitch it (morning: set up the day; afternoon: adjust; evening: finish well and prep tomorrow).
+- headline: one line (max 70 characters) naming the single most important thing today.
+- items: 3 to 5, in this order where relevant:
+  1. How they're tracking, with real numbers (7-day average vs target line, trend, days left).
+  2. Food for the rest of today: calories and protein left, plus one concrete meal or snack idea that fits.
+  3. Training today: from their plan, adjusted to what they've already logged (steps, workouts).
+  4. One habit or fix based on a pattern in the last 14 days (logging gaps, weekends, protein, steps, alcohol).
+  5. Optional: a motivation or wedding milestone (fittings, final weeks).
+  icon: one emoji. title: 2-5 words. text: 1-2 specific sentences with numbers. No generic filler.`;
+
+async function dailyAdvice(context: unknown) {
+  const data = JSON.stringify(context ?? {});
+  if (!context || data.length > 20000) return json({ error: "Missing data." }, 400);
+  try {
+    const response = await anthropic.beta.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 16000,
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      output_config: { effort: "low", format: { type: "json_schema", schema: DAILY_SCHEMA } },
+      system: [
+        { type: "text", text: COACH_SYSTEM },
+        { type: "text", text: `The user's current data from the app:\n${data}` },
+      ],
+      messages: [{ role: "user", content: DAILY_TASK }],
+    });
+    if (response.stop_reason === "refusal") return json({ error: "No advice today." }, 422);
+    const text = response.content.find((b) => b.type === "text");
+    if (!text || text.type !== "text") return json({ error: "No advice came back." }, 502);
+    return json(JSON.parse(text.text));
+  } catch (err) {
+    if (err instanceof Anthropic.APIError) return json({ error: `Claude API error (${err.status}).` }, 502);
+    console.error(err);
+    return json({ error: "Something went wrong." }, 500);
+  }
+}
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
@@ -160,6 +216,7 @@ Deno.serve(async (req) => {
   const body = await req.json().catch(() => ({}));
   if (body.mode === "plan") return buildPlan(body.answers, body.profile);
   if (body.mode === "chat") return coachReply(body.messages, body.context);
+  if (body.mode === "daily") return dailyAdvice(body.context);
 
   // Either a photo (base64) or a typed description of what was eaten
   const { image, mediaType, text } = body;
