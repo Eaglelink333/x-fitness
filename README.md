@@ -39,6 +39,13 @@ Websites can't read Apple Health directly, so an iOS Shortcut sends the data in.
 
 The Shortcut opens the app in Safari, so sign in there once as well.
 
+## Two people, one app
+Each person creates their own account, so data is kept separate. Choosing **Female** in setup switches to:
+- a female workout plan (glutes/legs + dress-ready shoulders, back and arms, plus Pilates/core)
+- protein at 1.6 g/kg, and a calorie floor of 1,200
+- cycle-aware advice (a 1–2 kg jump before your period is water) and iron, calcium and craving tips
+- wedding tips about dress fittings and final-week bloating
+
 ## How the numbers work
 - **Calorie target** uses the Mifflin-St Jeor BMR × 1.4 (assuming ~10k steps a day), minus the deficit needed to reach the goal by the goal date.
   The deficit is capped at 1,000 kcal/day, and calories never go below 1,500 (men) or 1,200 (women).

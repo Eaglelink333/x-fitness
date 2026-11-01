@@ -67,7 +67,8 @@ p { margin: 8px 0 0; }
 .between { justify-content: space-between; }
 .gap { gap: 8px; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+label { min-width: 0; }
 .span2 { grid-column: span 2; }
 
 label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); font-weight: 600; }

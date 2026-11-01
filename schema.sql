@@ -8,8 +8,12 @@ create table if not exists public.profile (
   age          int not null,
   sex          text not null check (sex in ('m', 'f')),
   start_date   date not null,
-  goal_date    date not null default '2027-01-10'
+  goal_date    date not null default '2027-01-10',
+  name         text
 );
+
+-- Added later: safe to re-run on an existing database
+alter table public.profile add column if not exists name text;
 
 create table if not exists public.days (
   user_id    uuid not null references auth.users on delete cascade,

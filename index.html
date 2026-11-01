@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>X-Fitness</title>
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 <header class="top">
@@ -43,13 +43,14 @@
       <h1>Set your goal</h1>
       <p class="muted">Your height, age and sex are used to work out your daily calorie target.</p>
       <form id="setup-form" class="grid2">
+        <label>Your name<input id="s-name" type="text" maxlength="30" autocomplete="given-name" placeholder="Optional"></label>
+        <label>Sex<select id="s-sex"><option value="m">Male</option><option value="f">Female</option></select></label>
         <label>Starting weight (kg)<input id="s-start" type="number" step="0.1" min="30" max="300" inputmode="decimal" required></label>
         <label>Goal weight (kg)<input id="s-goal" type="number" step="0.1" min="30" max="300" inputmode="decimal" required></label>
         <label>Height (cm)<input id="s-height" type="number" min="120" max="230" inputmode="numeric" required></label>
         <label>Age<input id="s-age" type="number" min="16" max="90" inputmode="numeric" required></label>
-        <label>Sex<select id="s-sex"><option value="m">Male</option><option value="f">Female</option></select></label>
         <label>Start date<input id="s-startdate" type="date" required></label>
-        <label class="span2">Goal date (wedding)<input id="s-goaldate" type="date" required></label>
+        <label>Goal date (wedding)<input id="s-goaldate" type="date" required></label>
         <button type="submit" class="btn primary span2">Save goal</button>
         <button type="button" class="btn span2" id="setup-cancel" hidden>Cancel</button>
       </form>
@@ -145,7 +146,7 @@
     <div class="card">
       <h2>Weekly workout plan</h2>
       <ul id="week" class="list week"></ul>
-      <p class="muted small">Strength: pick a weight you can lift for the listed reps with 1–2 reps left in the tank. Add a little weight each week. Lifting keeps your muscle, so the weight you lose is fat.</p>
+      <p id="week-note" class="muted small"></p>
     </div>
     <div class="card">
       <h2>Food rules</h2>
@@ -192,7 +193,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=2"></script>
-<script src="app.js?v=2"></script>
+<script src="config.js?v=3"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>

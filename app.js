@@ -60,7 +60,12 @@ async function loadAll() {
 
 async function saveProfile() {
   if (!CLOUD) return localWrite();
-  const { error } = await sb.from('profile').upsert({ user_id: user.id, ...profile });
+  let { error } = await sb.from('profile').upsert({ user_id: user.id, ...profile });
+  // Database not migrated for the name column yet: save everything else
+  if (error && /name/.test(error.message)) {
+    const { name, ...rest } = profile;
+    ({ error } = await sb.from('profile').upsert({ user_id: user.id, ...rest }));
+  }
   if (error) throw error;
 }
 
@@ -115,7 +120,7 @@ function plan() {
   const stepGoal = Math.min(16000, BASE_STEPS + extraSteps);
   const dailyBurn = deficit + (stepGoal - BASE_STEPS) * kcalPerStep;
   const projected = w - (dailyBurn * left) / KCAL_PER_KG;
-  const protein = Math.round((p.goal_weight * 1.8) / 5) * 5;
+  const protein = Math.round((p.goal_weight * (p.sex === 'f' ? 1.6 : 1.8)) / 5) * 5;
   return { w, left, tdee, kcal, deficit, needed, floor, stepGoal, extraSteps, projected, protein, toLose, kcalPerStep, weekly: (dailyBurn * 7) / KCAL_PER_KG };
 }
 
@@ -141,7 +146,18 @@ function trend() {
 }
 
 // ---------- advice ----------
-const WORKOUTS = [
+// Female plan leans on glutes/legs plus shoulders, back and arms for the dress
+const WORKOUTS_F = [
+  { d: 'Sun', icon: '🧘', t: 'Rest day. Easy walk, yoga or a 20 min stretch.' },
+  { d: 'Mon', icon: '🍑', t: 'Lower body: Hip thrust 3×10, Goblet squat 3×10, Romanian deadlift 3×10, Walking lunges 3×10/leg.' },
+  { d: 'Tue', icon: '🚶‍♀️', t: 'Cardio: 45 min brisk walk or incline treadmill (10–12% at ~5 km/h).' },
+  { d: 'Wed', icon: '💪', t: 'Upper body (dress-ready arms & back): Shoulder press 3×10, Lat pulldown 3×10, Seated row 3×12, Lateral raise 3×12, Tricep pushdown 3×12.' },
+  { d: 'Thu', icon: '🔥', t: 'Pilates or core + intervals: 20 min core/Pilates, then 8 × (1 min hard / 1 min easy) on bike or rower.' },
+  { d: 'Fri', icon: '🏋️‍♀️', t: 'Full body: Squat 3×10, Push-ups (knees fine) 3×8–12, Single-arm row 3×10, Glute bridge 3×15, Plank 3×30s.' },
+  { d: 'Sat', icon: '⛰️', t: 'Active day: 60+ min hike, dance class, swim or long walk with a friend.' },
+];
+
+const WORKOUTS_M = [
   { d: 'Sun', icon: '🧘', t: 'Rest day. Easy 30–45 min walk and a stretch.' },
   { d: 'Mon', icon: '🏋️', t: 'Strength A: Squat 3×8–10, Bench or push-ups 3×8–10, Row 3×10, Plank 3×40s.' },
   { d: 'Tue', icon: '🚶', t: 'Cardio: 45 min brisk walk or incline treadmill (10–12% at ~5 km/h).' },
@@ -166,15 +182,31 @@ const FOOD_RULES = [
   { icon: '⏱️', t: 'Eat slowly. Taking ~20 minutes per meal gives your fullness signals time to kick in.' },
 ];
 
+const FOOD_RULES_F = [
+  { icon: '🩸', t: 'Get enough iron while dieting: red meat 2–3×/week, spinach, lentils. Pair plant iron with vitamin C (capsicum, citrus) so it absorbs better.' },
+  { icon: '🥛', t: 'Keep calcium up with Greek yoghurt, milk, cheese or calcium-fortified alternatives. It matters more on lower calories.' },
+  { icon: '🌙', t: 'Cravings often spike the week before your period. Plan a 150–200 kcal treat (e.g. a few squares of dark chocolate) instead of fighting it.' },
+];
+
+const isF = () => profile?.sex === 'f';
+const workouts = () => (isF() ? WORKOUTS_F : WORKOUTS_M);
+const foodRules = () => (isF() ? [...FOOD_RULES, ...FOOD_RULES_F] : FOOD_RULES);
+
 function advice() {
   const t = todayStr(), pl = plan(), st = status(), out = [];
   const today = getDay(t), yest = getDay(addDays(t, -1));
   const eaten = kcalOf(t), yKcal = kcalOf(addDays(t, -1));
 
-  if (pl.left <= 7) out.push({ icon: '💍', t: `Final week. Keep calories steady, go easy on salt and alcohol, drink plenty of water and sleep well. Don't crash diet now.` });
+  const outfit = isF() ? 'dress' : 'suit';
+  if (pl.left <= 7) out.push({ icon: '💍', t: isF()
+    ? `Final week. Keep calories steady, cut salt, fizzy drinks and alcohol to reduce bloating, drink plenty of water and sleep well. Don't crash diet now.`
+    : `Final week. Keep calories steady, go easy on salt and alcohol, drink plenty of water and sleep well. Don't crash diet now.` });
+  else if (pl.left <= 28) out.push({ icon: '🪡', t: `Final ${outfit} fitting is usually 2–3 weeks before the day. Aim to be near your goal by then, and keep your weight steady afterwards so the fit stays perfect.` });
 
   if (!today.weight) out.push({ icon: '⚖️', t: 'Weigh in this morning, after the toilet and before you eat or drink.' });
-  else if (yest.weight && today.weight - yest.weight >= 0.5) out.push({ icon: '🧂', t: `Up ${fmt1(today.weight - yest.weight)} kg overnight. That's almost always water and salt, not fat. Trust the 7-day average.` });
+  else if (yest.weight && today.weight - yest.weight >= 0.5) out.push({ icon: '🧂', t: isF()
+    ? `Up ${fmt1(today.weight - yest.weight)} kg overnight. That's water, not fat: salt, carbs or your cycle (1–2 kg in the week before your period is normal). Trust the 7-day average.`
+    : `Up ${fmt1(today.weight - yest.weight)} kg overnight. That's almost always water and salt, not fat. Trust the 7-day average.` });
 
   if (yKcal > pl.kcal + 250) out.push({ icon: '↩️', t: `Yesterday was ${fmtInt(yKcal - pl.kcal)} kcal over. Don't skip meals to make up for it. Just hit today's target and add a 30 min walk.` });
 
@@ -188,14 +220,15 @@ function advice() {
     out.push({ icon: '👟', t: `${fmtInt(pl.stepGoal - today.steps)} steps to go. That's about a ${mins} min walk.` });
   } else out.push({ icon: '✅', t: `Step goal smashed: ${fmtInt(today.steps)} steps.` });
 
-  const w = WORKOUTS[new Date().getDay()];
+  const w = workouts()[new Date().getDay()];
   out.push({ icon: w.icon, t: `Today's workout: ${w.t}` });
 
   if (st.cls === 'warn' || st.cls === 'bad') out.push({ icon: '🎯', t: 'Behind the line. This week: zero alcohol, no liquid calories, and log every bite. That alone usually closes the gap.' });
   else if (st.d != null && st.d <= -0.3) out.push({ icon: '🙌', t: "Ahead of schedule. Keep calories where they are and don't eat back your progress." });
 
   const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
-  out.push(FOOD_RULES[dayOfYear % FOOD_RULES.length]);
+  const rules = foodRules();
+  out.push(rules[dayOfYear % rules.length]);
   return out;
 }
 
@@ -217,6 +250,7 @@ function show(view) {
 function rerender() { if (currentView) show(currentView); }
 
 function renderHeader() {
+  $('.brand').textContent = profile?.name ? `Hi ${profile.name}` : 'X-Fitness';
   if (!profile) { $('#countdown').textContent = ''; return; }
   const left = diffDays(todayStr(), profile.goal_date);
   $('#countdown').textContent = left > 0 ? `${left} days to ${fmtDate(profile.goal_date)}` : left === 0 ? 'Today is the day 💍' : 'Goal date passed';
@@ -224,6 +258,7 @@ function renderHeader() {
 
 function renderSetup() {
   const p = profile;
+  $('#s-name').value = p?.name ?? '';
   $('#s-start').value = p?.start_weight ?? '';
   $('#s-goal').value = p?.goal_weight ?? '';
   $('#s-height').value = p?.height_cm ?? '';
@@ -395,8 +430,12 @@ function renderPlan() {
 
   const dow = new Date().getDay();
   const order = [1, 2, 3, 4, 5, 6, 0];
-  $('#week').innerHTML = order.map((i) => `<li class="${i === dow ? 'today' : ''}"><span class="d">${WORKOUTS[i].d}</span><span class="w">${esc(WORKOUTS[i].t)}</span></li>`).join('');
-  $('#rules').innerHTML = FOOD_RULES.map((a) => `<li><span class="i">${a.icon}</span><span>${esc(a.t)}</span></li>`).join('');
+  const wk = workouts();
+  $('#week').innerHTML = order.map((i) => `<li class="${i === dow ? 'today' : ''}"><span class="d">${wk[i].d}</span><span class="w">${esc(wk[i].t)}</span></li>`).join('');
+  $('#week-note').textContent = 'Strength: pick a weight you can lift for the listed reps with 1–2 reps left in the tank. Add a little weight each week. '
+    + (isF() ? "Lifting won't make you bulky. It keeps your muscle so the weight you lose is fat, which gives a toned, defined look in photos."
+             : 'Lifting keeps your muscle, so the weight you lose is fat.');
+  $('#rules').innerHTML = foodRules().map((a) => `<li><span class="i">${a.icon}</span><span>${esc(a.t)}</span></li>`).join('');
 
   const base = location.origin + location.pathname;
   $('#shortcut-url').textContent = `${base}?steps=[steps]&active=[active]&weight=[weight]`;
@@ -518,6 +557,7 @@ $('#s-start').addEventListener('input', () => {
 $('#setup-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const next = {
+    name: $('#s-name').value.trim().slice(0, 30) || null,
     start_weight: +$('#s-start').value, goal_weight: +$('#s-goal').value,
     height_cm: +$('#s-height').value, age: +$('#s-age').value, sex: $('#s-sex').value,
     start_date: $('#s-startdate').value, goal_date: $('#s-goaldate').value,
