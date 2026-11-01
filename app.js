@@ -121,6 +121,18 @@ const actLabel = (a) => a.name || activityOf(a.type).label; // Watch workouts ke
 const burnFor = (key, mins, kg) => Math.round(((activityOf(key).met - 1) * kg * mins) / 60 / 5) * 5;
 const burnOf = (date) => getDay(date).activities.reduce((s, a) => s + (+a.kcal || 0), 0);
 
+// Move goal = steps + workouts converted to the steps that burn the same calories.
+// Walks, runs and hikes already show up in your steps, and the Watch's exercise-minutes total
+// can't be split into walking vs gym, so those aren't added again.
+const STEP_BASED = ['walk', 'run', 'hike'];
+function movementOf(date) {
+  const d = getDay(date), perStep = 0.0005 * currentWeight(date);
+  const kcal = d.activities.filter((a) => !STEP_BASED.includes(a.type) && a.name !== 'Apple Watch exercise')
+    .reduce((s, a) => s + (+a.kcal || 0), 0);
+  const fromWorkouts = Math.round(kcal / perStep / 100) * 100;
+  return { steps: d.steps || 0, fromWorkouts, total: (d.steps || 0) + fromWorkouts };
+}
+
 // ---------- macros (grams; only on items from photos, barcodes or recent foods that had them) ----------
 const MACROS = ['protein', 'carbs', 'fat'];
 const hasMacros = (f) => f.protein != null;
@@ -307,11 +319,12 @@ function advice() {
   const proteinLeft = pl.protein - macroTotals(t).protein;
   if (today.foods.some(hasMacros) && proteinLeft > 30) out.push({ icon: '🥩', t: `${Math.round(proteinLeft)} g protein to go. Easy wins: chicken breast (~45 g), a tin of tuna (~25 g), 200 g Greek yoghurt (~20 g).` });
 
-  if (today.steps == null) out.push({ icon: '👟', t: `Step goal: ${fmtInt(pl.stepGoal)}. Run the "Sync X-Fitness" Shortcut to pull steps from Apple Health.` });
-  else if (today.steps < pl.stepGoal) {
-    const mins = Math.ceil((pl.stepGoal - today.steps) / 110 / 5) * 5;
-    out.push({ icon: '👟', t: `${fmtInt(pl.stepGoal - today.steps)} steps to go. That's about a ${mins} min walk.` });
-  } else out.push({ icon: '✅', t: `Step goal smashed: ${fmtInt(today.steps)} steps.` });
+  const mv = movementOf(t);
+  if (today.steps == null && !mv.fromWorkouts) out.push({ icon: '👟', t: `Move goal: ${fmtInt(pl.stepGoal)} steps (workouts count too). Run the "Sync X-Fitness" Shortcut to pull steps from Apple Health.` });
+  else if (mv.total < pl.stepGoal) {
+    const mins = Math.ceil((pl.stepGoal - mv.total) / 110 / 5) * 5;
+    out.push({ icon: '👟', t: `${fmtInt(pl.stepGoal - mv.total)} steps to go on your move goal. That's about a ${mins} min walk, or a gym session.` });
+  } else out.push({ icon: '✅', t: `Move goal smashed: ${fmtInt(mv.total)} of ${fmtInt(pl.stepGoal)}.` });
 
   const w = workouts()[new Date().getDay()];
   out.push({ icon: w.icon, t: `Today's workout: ${w.t}` });
@@ -447,8 +460,12 @@ function renderToday() {
   $('#steps-kcal').hidden = !stepKcal || d.active_cal != null;
   $('#steps-kcal').textContent = `≈ ${fmtInt(stepKcal)} kcal burnt from ${fmtInt(d.steps || 0)} steps (estimate)`;
   $('#active').placeholder = stepKcal ? `≈ ${fmtInt(stepKcal)}` : '–';
-  $('#steps-goal').textContent = `Goal ${fmtInt(pl.stepGoal)} steps`;
-  setBar($('#steps-bar'), (d.steps || 0) / pl.stepGoal, (d.steps || 0) >= pl.stepGoal ? 'done' : '');
+  const mv = movementOf(viewDate);
+  $('#steps-goal').textContent = `Move goal ${fmtInt(pl.stepGoal)}`;
+  setBar($('#steps-bar'), mv.total / pl.stepGoal, mv.total >= pl.stepGoal ? 'done' : '');
+  $('#move-line').textContent = mv.fromWorkouts
+    ? `${fmtInt(mv.steps)} steps + ${fmtInt(mv.fromWorkouts)} from workouts = ${fmtInt(mv.total)} / ${fmtInt(pl.stepGoal)}`
+    : `${fmtInt(mv.steps)} / ${fmtInt(pl.stepGoal)} steps · workouts count towards this too`;
 
   const burnt = burnOf(viewDate);
   $('#act-total').textContent = burnt ? `~${fmtInt(burnt)} kcal burnt` : '';
@@ -497,10 +514,10 @@ function renderProgress() {
     note = `Daily target ${fmtInt(pl.kcal)} kcal. Red bars are over-target days.`;
   } else {
     datasets = [
-      { type: 'bar', label: 'Steps', data: labels.map((d) => getDay(d).steps), backgroundColor: labels.map((d) => ((getDay(d).steps || 0) >= pl.stepGoal ? good : accent)), borderRadius: 4 },
+      { type: 'bar', label: 'Steps', data: labels.map((d) => movementOf(d).total || null), backgroundColor: labels.map((d) => (movementOf(d).total >= pl.stepGoal ? good : accent)), borderRadius: 4 },
       { type: 'line', label: 'Goal', data: labels.map(() => pl.stepGoal), borderColor: muted, borderDash: [6, 5], borderWidth: 1.5, pointRadius: 0 },
     ];
-    note = `Daily goal ${fmtInt(pl.stepGoal)} steps. Green bars hit the goal.`;
+    note = `Move goal ${fmtInt(pl.stepGoal)}: steps plus workouts (as step equivalents). Green bars hit the goal.`;
   }
   $('#chart-note').textContent = note;
 
@@ -554,7 +571,7 @@ function renderPlan() {
     ['Protein / day', `${pl.protein} g`],
     ['Carbs / day', `${macroTargets(pl).carbs} g`],
     ['Fat / day', `${macroTargets(pl).fat} g`],
-    ['Steps / day', fmtInt(pl.stepGoal)],
+    ['Move goal / day', fmtInt(pl.stepGoal)],
     ['Expected loss', `${fmt1(pl.weekly)} kg/wk`],
   ].map(([l, v]) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
 
@@ -564,7 +581,7 @@ function renderPlan() {
   } else {
     note = `To lose ${fmt1(pl.toLose)} kg in ${pl.left} days you need a deficit of about ${fmtInt(pl.needed)} kcal/day (your maintenance is ~${fmtInt(pl.tdee)}). `;
     if (pl.extraSteps > 0) {
-      note += `Calories are capped at a safe ${fmtInt(pl.kcal)} kcal, so the rest comes from walking. That's why your step goal is ${fmtInt(pl.stepGoal)}. `;
+      note += `Calories are capped at a safe ${fmtInt(pl.kcal)} kcal, so the rest comes from moving more. That's why your move goal is ${fmtInt(pl.stepGoal)} (10,000 base + ${fmtInt(pl.stepGoal - BASE_STEPS)} extra). Workouts like gym, tennis or swimming count towards it as the steps that burn the same calories. `;
     }
     if (pl.projected > p.goal_weight + 0.3) {
       const per1k = (1000 * pl.kcalPerStep * pl.left) / KCAL_PER_KG;
@@ -824,6 +841,7 @@ function coachContext() {
       protein_g: Math.round(m.protein) || null, carbs_g: Math.round(m.carbs) || null, fat_g: Math.round(m.fat) || null,
       foods_logged: x.foods.length, foods_without_macros: m.missing, steps: x.steps, active_kcal: x.active_cal,
       kcal_from_steps_estimate: x.steps ? Math.round(x.steps * 0.0005 * pl.w) : null, // used when no Watch data
+      move_total: movementOf(d).total, // steps + workouts as step equivalents, vs the move goal
 
       workouts: x.activities.map((a) => `${actLabel(a)} ${a.mins} min (~${a.kcal} kcal${a.src === 'watch' ? ', Apple Watch' : ''})`),
     });
@@ -835,7 +853,8 @@ function coachContext() {
     start_date: p.start_date, goal_date: p.goal_date, days_left: pl.left,
     weight_7day_avg_kg: +fmt1(pl.w), target_weight_today_kg: +fmt1(targetAt(t)), status: st.label,
     trend_kg_lost_per_week: tr ? +fmt1(-tr.perWeek) : null, projected_weight_on_goal_date_kg: tr ? +fmt1(tr.atGoal) : null,
-    daily_targets: { kcal: pl.kcal, protein_g: pl.protein, carbs_g: mt.carbs, fat_g: mt.fat, steps: pl.stepGoal },
+    daily_targets: { kcal: pl.kcal, protein_g: pl.protein, carbs_g: mt.carbs, fat_g: mt.fat, move_goal_steps: pl.stepGoal },
+    move_goal_explained: 'Move goal = steps + non-walking workouts converted to the steps that burn the same calories (gym, tennis, swim etc. count; walks/runs are already in steps).',
     maintenance_kcal_estimate: Math.round(pl.tdee),
     todays_food: today.foods.map((f) => `${f.name}: ${f.kcal} kcal${hasMacros(f) ? ` (P${f.protein} C${f.carbs} F${f.fat})` : ''}`),
     todays_workout_in_plan: workouts()[new Date().getDay()].t,

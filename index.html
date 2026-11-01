@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>X-Fitness</title>
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=18">
 <script>
   // Apply the saved theme before first paint so there's no flash
   try { const t = localStorage.getItem('xf-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
@@ -141,6 +141,7 @@
     <div class="card">
       <div class="row between"><h2>Activity</h2><span id="steps-goal" class="muted small"></span></div>
       <div class="bar"><div id="steps-bar"></div></div>
+      <p id="move-line" class="small move-line"></p>
       <div class="grid2">
         <label>Steps<input id="steps" type="number" min="0" inputmode="numeric" placeholder="–"></label>
         <label>Active kcal<input id="active" type="number" min="0" inputmode="numeric" placeholder="–"></label>
@@ -273,7 +274,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=17"></script>
-<script src="app.js?v=17"></script>
+<script src="config.js?v=18"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

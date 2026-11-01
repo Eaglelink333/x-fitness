@@ -136,6 +136,7 @@ input[type="date"] { min-height: 46px; }
 
 .kcal-in { flex: 0 0 92px; }
 h3 { font-size: 15px; margin: 0; }
+.move-line { margin: -4px 0 10px; color: var(--muted); }
 
 /* Today's advice (daily briefing) */
 .advice-headline { font-size: 17px; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 12px; }
