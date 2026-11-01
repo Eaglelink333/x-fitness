@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>X-Fitness</title>
-<link rel="stylesheet" href="style.css?v=18">
+<link rel="stylesheet" href="style.css?v=19">
 <script>
   // Apply the saved theme before first paint so there's no flash
   try { const t = localStorage.getItem('xf-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
@@ -228,21 +228,35 @@
     <div class="card">
       <details id="health-guide">
         <summary><h2>Connect Apple Health</h2></summary>
-        <p class="small">Websites can't read Apple Health directly, so a free iPhone <b>Shortcut</b> reads your steps and active calories and sends them here. It takes about 5 minutes to set up once.</p>
+        <p class="small">Websites can't read Apple Health directly, so a free iPhone <b>Shortcut</b> reads your Health data and sends it to X-Fitness <b>in the background</b>. Nothing opens, and it works from automations. It takes about 5 minutes to set up once.</p>
+        <div id="sync-box" class="sync-box"></div>
         <ol class="small steps-list">
           <li>Open the <b>Shortcuts</b> app → <b>+</b> (new shortcut). Name it <b>Sync X-Fitness</b>.</li>
-          <li>Add <b>Find Health Samples</b>. Set Type: <b>Steps</b>, Start Date: <b>is today</b>.</li>
+          <li>Add <b>Find Health Samples</b>. Set Type: <b>Steps</b>, Start Date: <b>is today</b>. Set <b>Group by</b>: <b>Day</b> and turn on <b>Fill Missing</b> if it's offered, so days with no data send 0 instead of stopping the Shortcut.</li>
           <li>Add <b>Calculate Statistics</b>. Set it to <b>Sum</b> of <i>Health Samples</i>.</li>
           <li>Add <b>Set Variable</b> and name it <code>steps</code>.</li>
-          <li>Repeat steps 2–4 with Type: <b>Active Energy</b>, and name the variable <code>active</code>.</li>
-          <li><i>(Apple Watch)</i> Repeat steps 2–4 once more with Type: <b>Exercise Minutes</b> (your green ring), and name the variable <code>exercise</code>. It shows in Activity as "Apple Watch exercise" and your coach sees it.</li>
-          <li><i>(Optional, if you use a smart scale)</i> Add <b>Find Health Samples</b> with Type: <b>Weight</b>, Sort by <b>Start Date</b>, <b>Latest First</b>, Limit <b>1</b>. Then add <b>Set Variable</b> and name it <code>weight</code>.</li>
-          <li><i>(Advanced, optional)</i> Want each workout by name (e.g. "Tennis · 65 min")? Shortcuts usually can't list individual workouts. Apps like <b>Toolbox Pro</b> add a <b>Get Workouts</b> action: put it in <b>Repeat with Each</b> with a <b>Text</b> action <code>[Name]~[Duration]~[Total Energy]</code>, then <b>Combine Text</b> (New Lines) → <b>URL Encode</b> → variable <code>workouts</code>, and add <code>&amp;workouts=[workouts]</code> to the URL below. When workouts come through, they replace the exercise-minutes entry.</li>
-          <li>Add <b>URL</b> with this text, inserting your variables where shown:<br><code id="shortcut-url" class="url"></code></li>
-          <li>Add <b>Open URLs</b>. Tap ▶ to test it. Safari will open and show "Synced from Apple Health".</li>
-          <li>Automate it: in Shortcuts go to <b>Automation</b> → <b>+</b> → <b>Time of Day</b> (e.g. 8:00 pm, daily) → <b>Run Immediately</b> → choose <b>Sync X-Fitness</b>.</li>
+          <li>Repeat steps 2–4 with Type: <b>Active Energy</b> → variable <code>active</code>.</li>
+          <li><i>(Apple Watch)</i> Repeat steps 2–4 with Type: <b>Exercise Minutes</b> → variable <code>exercise</code>.</li>
+          <li><i>(Optional, smart scale)</i> <b>Find Health Samples</b>, Type: <b>Weight</b>, Sort by <b>Start Date</b>, <b>Latest First</b>, Limit <b>1</b> → <b>Set Variable</b> <code>weight</code>.</li>
+          <li>Add <b>Get Contents of URL</b>. Tap the URL and paste: <button class="copy" type="button" data-copy="url">Copy URL</button></li>
+          <li>Tap the <b>›</b> arrow on that action to show more. Set <b>Method</b>: <b>POST</b>.</li>
+          <li><b>Headers</b> → <b>Add new header</b>. Key: <code>Authorization</code>. Value: paste <button class="copy" type="button" data-copy="auth">Copy header value</button></li>
+          <li><b>Request Body</b>: <b>JSON</b>. Tap <b>Add new field</b> → <b>Text</b> for each of these:
+            <ul>
+              <li><code>mode</code> → type <code>health</code></li>
+              <li><code>key</code> → paste your sync key (from the box above)</li>
+              <li><code>steps</code> → insert the <i>steps</i> variable</li>
+              <li><code>active</code> → insert the <i>active</i> variable</li>
+              <li><code>exercise</code> → insert the <i>exercise</i> variable</li>
+              <li><code>weight</code> → insert the <i>weight</i> variable (only if you did step 7)</li>
+            </ul>
+          </li>
+          <li><i>(Optional)</i> Add <b>Show Notification</b> with <i>Contents of URL</i> to see "Synced to X-Fitness: …".</li>
+          <li>Tap <b>▶</b> to test. Then open X-Fitness: your steps should be there.</li>
+          <li>Automate it: <b>Automation</b> → <b>+</b> → <b>Time of Day</b> → e.g. 12 pm, 5 pm and 8 pm, daily → <b>Run Immediately</b> (turn off <i>Notify When Run</i>) → <b>Sync X-Fitness</b>.</li>
         </ol>
-        <p class="muted small">The first time, iOS asks for permission to read Health data. Tap Allow. You also need to be signed in to X-Fitness in Safari once.</p>
+        <p class="muted small">If you set up the older version (URL + <b>Open URLs</b>), delete those two actions and use steps 8–11 instead. The first time, iOS asks to read Health data: tap Allow.</p>
+        <p class="muted small"><i>Advanced:</i> to sync workouts by name, a helper app like <b>Toolbox Pro</b> (<b>Get Workouts</b>) can build text lines of <code>Name~Duration~Calories</code>. Send them as a <code>workouts</code> field.</p>
       </details>
     </div>
     <div class="card">
@@ -274,7 +288,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=18"></script>
-<script src="app.js?v=18"></script>
+<script src="config.js?v=19"></script>
+<script src="app.js?v=19"></script>
 </body>
 </html>

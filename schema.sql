@@ -17,6 +17,9 @@ alter table public.profile add column if not exists name text;
 alter table public.days add column if not exists activities jsonb not null default '[]';
 alter table public.profile add column if not exists answers jsonb;
 alter table public.profile add column if not exists plan jsonb;
+-- Background Apple Health sync: the Shortcut sends this key instead of logging in
+alter table public.profile add column if not exists sync_token text unique;
+alter table public.profile add column if not exists tz text;
 
 create table if not exists public.days (
   user_id    uuid not null references auth.users on delete cascade,

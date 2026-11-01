@@ -136,6 +136,11 @@ input[type="date"] { min-height: 46px; }
 
 .kcal-in { flex: 0 0 92px; }
 h3 { font-size: 15px; margin: 0; }
+.sync-box { margin: 12px 0; padding: 12px; border-radius: 12px; background: var(--soft); }
+.sync-box .key { font-family: ui-monospace, Menlo, monospace; font-size: 14px; font-weight: 700; letter-spacing: 0.02em; }
+.sync-box .row { flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.copy { font: inherit; font-size: 13px; font-weight: 700; color: var(--accent); background: var(--card); border: 1px solid var(--line); border-radius: 99px; padding: 4px 10px; cursor: pointer; margin: 4px 0; }
+.steps-list ul { padding-left: 16px; margin: 6px 0; }
 .move-line { margin: -4px 0 10px; color: var(--muted); }
 
 /* Today's advice (daily briefing) */

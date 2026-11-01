@@ -27,7 +27,13 @@ After a minute the app is live at `https://eaglelink333.github.io/x-fitness/`.
 ### 3. Put it on your iPhone
 Open the URL in Safari → **Share** → **Add to Home Screen**. Then open it and create your account.
 
-### 4. Connect Apple Health
+### 4. Connect Apple Health (background sync)
+The Shortcut posts to the `food-photo` function with `mode: "health"` and your personal **sync key**
+(Plan → Connect Apple Health → Create my sync key), so nothing opens and it works from automations.
+The in-app guide has copy buttons for the URL, the `Authorization` header and the key.
+The older URL + Open URLs method below still works too.
+
+### 4b. Older method: open a link
 Websites can't read Apple Health directly, so an iOS Shortcut sends the data in. Full steps are in the app under **Plan → Connect Apple Health**. In short:
 
 1. Shortcuts → new shortcut **Sync X-Fitness**.

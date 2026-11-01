@@ -67,8 +67,8 @@ async function saveProfile() {
   if (!CLOUD) return localWrite();
   let { error } = await sb.from('profile').upsert({ user_id: user.id, ...profile });
   // Database not migrated for newer columns yet: keep the plan on this device and save the rest
-  if (error && /name|plan|answers/.test(error.message)) {
-    const { name, plan, answers, ...rest } = profile;
+  if (error && /name|plan|answers|sync_token|tz/.test(error.message)) {
+    const { name, plan, answers, sync_token, tz, ...rest } = profile;
     try { localStorage.setItem(PLAN_KEY(), JSON.stringify({ plan, answers })); } catch {}
     ({ error } = await sb.from('profile').upsert({ user_id: user.id, ...rest }));
   }
@@ -602,8 +602,7 @@ function renderPlan() {
   renderAiPlan();
   $('#rules').innerHTML = (isF() ? [...FOOD_RULES, ...FOOD_RULES_F] : FOOD_RULES).map((a) => `<li><span class="i">${a.icon}</span><span>${esc(a.t)}</span></li>`).join('');
 
-  const base = location.origin + location.pathname;
-  $('#shortcut-url').textContent = `${base}?steps=[steps]&active=[active]&exercise=[exercise]&weight=[weight]`;
+  renderSyncBox();
   $('#signout').hidden = !CLOUD;
   $('#mode-note').textContent = CLOUD ? `Signed in as ${user?.email || ''}. Data syncs across devices.` : 'Local mode: data is saved in this browser only. Add your Supabase keys in config.js to sync.';
 }
@@ -932,6 +931,58 @@ $('#chat-input').addEventListener('input', (e) => {
 });
 $('#chat-chips').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) sendChat(b.textContent); });
 $('#chat-clear').addEventListener('click', () => { chatLog = []; saveChat(); renderCoach(); });
+
+// ---------- background Health sync: per-user key the Shortcut sends instead of logging in ----------
+function renderSyncBox() {
+  const box = $('#sync-box');
+  box.hidden = !CLOUD;
+  if (!CLOUD) return;
+  const key = profile.sync_token;
+  box.innerHTML = key
+    ? `<div class="strong small">Your sync key</div><div class="key">${esc(key.slice(0, 6))}…${esc(key.slice(-4))}</div>
+       <div class="row"><button class="copy" type="button" data-copy="key">Copy sync key</button><button class="copy" type="button" data-act="new-key">Make a new key</button></div>
+       <p class="muted small">Treat it like a password: anyone with it can add Health data to your account (but can't read anything).</p>`
+    : `<div class="strong small">Step 1: create your sync key</div>
+       <p class="muted small">The Shortcut uses it instead of signing in.</p>
+       <div class="row"><button class="btn primary" type="button" data-act="new-key">Create my sync key</button></div>`;
+}
+
+function randomKey() {
+  return [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function createSyncKey() {
+  if (profile.sync_token && !confirm('Make a new sync key? The old one stops working, so paste the new one into your Shortcut.')) return;
+  const old = profile.sync_token;
+  profile = { ...profile, sync_token: randomKey() };
+  try { await saveProfile(); } catch (err) { profile.sync_token = old; return toast("Couldn't save: " + err.message); }
+  // saveProfile quietly skips columns the database doesn't have yet, so check it really stored
+  const { data, error } = await sb.from('profile').select('sync_token').maybeSingle();
+  if (error || data?.sync_token !== profile.sync_token) {
+    profile.sync_token = old;
+    toast('Run the Supabase SQL update first (sync_token column), then try again.');
+  } else toast('Sync key ready. Copy it into your Shortcut.');
+  renderSyncBox();
+}
+
+function copyText(text) {
+  const done = () => toast('Copied');
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text).then(done, () => prompt('Copy this:', text));
+  prompt('Copy this:', text);
+}
+
+$('#health-guide').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-copy], [data-act="new-key"]');
+  if (!b) return;
+  if (b.dataset.act === 'new-key') return createSyncKey();
+  const what = b.dataset.copy;
+  if (what === 'url') copyText(`${CFG.supabaseUrl}/functions/v1/food-photo`);
+  if (what === 'auth') copyText(`Bearer ${CFG.supabaseAnonKey}`);
+  if (what === 'key') {
+    if (!profile.sync_token) return toast('Create your sync key first (top of this guide)');
+    copyText(profile.sync_token);
+  }
+});
 
 // ---------- Apple Health (via iOS Shortcut URL params) ----------
 function readHealthParams() {
@@ -1358,6 +1409,9 @@ async function boot() {
   try { ({ profile, days } = await loadAll()); }
   catch (err) { toast('Could not load data: ' + err.message); return; }
   if (!profile) return show('setup');
+  // Background Health sync works out "today" on the server, so it needs your time zone
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (CLOUD && tz && profile.tz !== tz) { profile.tz = tz; saveProfile().catch(() => {}); }
   const synced = !!pendingHealth;
   await applyHealth();
   viewDate = todayStr();

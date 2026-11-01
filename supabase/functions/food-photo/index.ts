@@ -200,11 +200,99 @@ async function dailyAdvice(context: unknown) {
   }
 }
 
+// ---------- background Apple Health sync from the iOS Shortcut ----------
+// Mirrors the app's own import (app.js applyHealth) so both paths store the same shape.
+const num = (v: unknown, decimal = false) => {
+  if (v == null || v === "") return null;
+  const s = decimal ? String(v).replace(",", ".") : String(v).replace(/,/g, "");
+  const m = s.match(/\d+(\.\d+)?/);
+  return m ? Number(m[0]) : null;
+};
+
+// MET values match the app's activity list; burn counts only the extra above resting
+const METS: Record<string, number> = { walk: 4.3, run: 9.8, tennis: 7.3, gym: 5, hiit: 8, cycle: 7.5, swim: 6, hike: 6, dance: 5, yoga: 3, other: 5 };
+const burn = (type: string, mins: number, kg: number) => Math.round((((METS[type] ?? 5) - 1) * kg * mins) / 60 / 5) * 5;
+const WATCH_TYPES: [RegExp, string][] = [
+  [/walk/, "walk"], [/run|jog/, "run"], [/tennis|squash|badminton|pickleball|padel/, "tennis"],
+  [/hiit|interval|kickbox|boxing|bootcamp/, "hiit"], [/strength|weight|core|functional|cross ?training/, "gym"],
+  [/cycl|bik|spin/, "cycle"], [/swim/, "swim"], [/hik/, "hike"], [/danc|barre/, "dance"],
+  [/yoga|pilates|flexib|mind|cooldown|stretch/, "yoga"],
+];
+
+function minutesOf(raw: unknown) {
+  const s = String(raw ?? "").trim().toLowerCase().replace(",", ".");
+  let m;
+  if ((m = s.match(/^(\d+):(\d{1,2}):(\d{1,2})$/))) return +m[1] * 60 + +m[2] + +m[3] / 60;
+  if ((m = s.match(/^(\d+):(\d{1,2})$/))) return +m[1] + +m[2] / 60;
+  const part = (re: RegExp) => { const x = s.match(re); return x ? parseFloat(x[1]) : 0; };
+  const h = part(/([\d.]+)\s*h/), mi = part(/([\d.]+)\s*m(?!s)/), sec = part(/([\d.]+)\s*s/);
+  if (h || mi || sec) return h * 60 + mi + sec / 60;
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n > 300 ? n / 60 : n;
+}
+
+type Activity = { type: string; mins: number; kcal: number; name?: string; src?: string };
+
+async function healthSync(body: Record<string, unknown>) {
+  const key = String(body.key ?? "").trim();
+  if (!/^[a-f0-9]{32,64}$/.test(key)) return json({ error: "Missing or invalid sync key. Copy it again from the app (Plan → Connect Apple Health)." }, 401);
+
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const { data: prof, error: pErr } = await admin.from("profile").select("user_id, tz, start_weight").eq("sync_token", key).maybeSingle();
+  if (pErr) return json({ error: "Sync isn't set up in the database yet (run the SQL update)." }, 500);
+  if (!prof) return json({ error: "Unknown sync key. Copy it again from the app." }, 401);
+
+  // "Today" in the user's time zone, not the server's
+  const tz = prof.tz || "Australia/Sydney";
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date ?? "")) ? String(body.date) : new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+
+  const { data: row } = await admin.from("days").select("*").eq("user_id", prof.user_id).eq("date", date).maybeSingle();
+  const { data: last } = await admin.from("days").select("weight").eq("user_id", prof.user_id).not("weight", "is", null)
+    .lte("date", date).order("date", { ascending: false }).limit(1).maybeSingle();
+  const kg = Number(last?.weight ?? prof.start_weight);
+
+  const day = {
+    user_id: prof.user_id, date,
+    weight: row?.weight ?? null, steps: row?.steps ?? null, active_cal: row?.active_cal ?? null,
+    foods: row?.foods ?? [], activities: (row?.activities ?? []) as Activity[],
+  };
+  const saved: string[] = [];
+  const steps = num(body.steps), active = num(body.active), exercise = num(body.exercise), weight = num(body.weight, true);
+  if (steps != null) { day.steps = Math.round(steps); saved.push(`${day.steps} steps`); }
+  if (active != null) { day.active_cal = Math.round(active); saved.push(`${day.active_cal} active kcal`); }
+  // Skip scale readings far from your last weight (someone else on the scale)
+  if (weight && day.weight == null && Math.abs(weight - kg) <= 3) { day.weight = Math.round(weight * 10) / 10; saved.push(`${day.weight} kg`); }
+
+  if (body.workouts != null || exercise != null) {
+    // Replace earlier Watch syncs for the day; keep anything logged by hand
+    let synced: Activity[] = String(body.workouts ?? "").split(/\n|\|/).map((l) => l.split("~").map((x) => x.trim()))
+      .filter(([name]) => name).map(([name, dur, cal]) => {
+        const mins = Math.round(minutesOf(dur));
+        const type = (WATCH_TYPES.find(([re]) => re.test(name.toLowerCase())) ?? [, "other"])[1];
+        return { type, mins, kcal: Math.round(num(cal) ?? 0) || burn(type, mins, kg), name: name.slice(0, 40), src: "watch" };
+      }).filter((a) => a.mins > 0 && a.mins <= 600);
+    const mins = Math.round(exercise ?? 0);
+    if (!synced.length && mins > 0 && mins <= 600) {
+      synced = [{ type: "other", mins, kcal: burn("other", mins, kg), name: "Apple Watch exercise", src: "watch" }];
+    }
+    day.activities = day.activities.filter((a) => a.src !== "watch").concat(synced);
+    if (synced.length) saved.push(synced[0].name === "Apple Watch exercise" ? `${mins} exercise min` : `${synced.length} workouts`);
+  }
+
+  const { error } = await admin.from("days").upsert({ ...day, updated_at: new Date().toISOString() });
+  if (error) return json({ error: `Couldn't save: ${error.message}` }, 500);
+  return json({ ok: true, date, message: `Synced to X-Fitness: ${saved.join(", ") || "nothing new"}` });
+}
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
+  const body = await req.json().catch(() => ({}));
+
+  // The iOS Shortcut has no login: it proves who it is with the user's sync key instead
+  if (body.mode === "health") return healthSync(body);
 
   // Only signed-in app users can spend the API credit (the anon key alone isn't enough)
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
@@ -213,7 +301,6 @@ Deno.serve(async (req) => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return json({ error: "Please sign in again." }, 401);
 
-  const body = await req.json().catch(() => ({}));
   if (body.mode === "plan") return buildPlan(body.answers, body.profile);
   if (body.mode === "chat") return coachReply(body.messages, body.context);
   if (body.mode === "daily") return dailyAdvice(body.context);
