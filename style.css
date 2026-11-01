@@ -117,6 +117,9 @@ input[type="date"] { min-height: 46px; }
 .bar > div.done { background: var(--good); }
 
 .kcal-in { flex: 0 0 92px; }
+h3 { font-size: 15px; margin: 0; }
+.act-head { margin: 16px 0 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+#act-type { flex: 1; }
 .macros { display: flex; flex-direction: column; gap: 4px; }
 .macro .row { font-size: 14px; }
 .macro .bar { margin: 4px 0 6px; }

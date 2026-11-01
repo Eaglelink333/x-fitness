@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>X-Fitness</title>
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <header class="top">
@@ -124,6 +124,15 @@
         <label>Active kcal<input id="active" type="number" min="0" inputmode="numeric" placeholder="–"></label>
       </div>
       <p class="muted small">These fill in automatically from Apple Health once the Shortcut is set up (see the Plan tab).</p>
+
+      <div class="row between act-head"><h3>Workouts</h3><span id="act-total" class="small strong"></span></div>
+      <form id="act-form" class="row gap">
+        <select id="act-type" aria-label="Activity"></select>
+        <input id="act-mins" type="number" min="1" max="600" inputmode="numeric" placeholder="min" class="kcal-in" aria-label="Minutes">
+        <button class="btn primary" type="submit" aria-label="Add workout">+</button>
+      </form>
+      <p id="act-preview" class="muted small"></p>
+      <ul id="act-list" class="list"></ul>
     </div>
 
     <div class="card">
@@ -210,7 +219,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="config.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

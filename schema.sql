@@ -14,6 +14,7 @@ create table if not exists public.profile (
 
 -- Added later: safe to re-run on an existing database
 alter table public.profile add column if not exists name text;
+alter table public.days add column if not exists activities jsonb not null default '[]';
 
 create table if not exists public.days (
   user_id    uuid not null references auth.users on delete cascade,
@@ -22,6 +23,7 @@ create table if not exists public.days (
   steps      int,
   active_cal int,
   foods      jsonb not null default '[]',
+  activities jsonb not null default '[]',
   updated_at timestamptz not null default now(),
   primary key (user_id, date)
 );

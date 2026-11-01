@@ -44,12 +44,12 @@ async function loadAll() {
   }
   const [p, d] = await Promise.all([
     sb.from('profile').select('*').maybeSingle(),
-    sb.from('days').select('date,weight,steps,active_cal,foods').order('date'),
+    sb.from('days').select('*').order('date'), // '*' so a missing activities column can't break loading
   ]);
   if (p.error) throw p.error;
   if (d.error) throw d.error;
   const map = {};
-  for (const r of d.data) map[r.date] = { weight: numOrNull(r.weight), steps: r.steps, active_cal: r.active_cal, foods: r.foods || [] };
+  for (const r of d.data) map[r.date] = { weight: numOrNull(r.weight), steps: r.steps, active_cal: r.active_cal, foods: r.foods || [], activities: r.activities || [] };
   let prof = null;
   if (p.data) {
     const { user_id, ...rest } = p.data;
@@ -72,16 +72,46 @@ async function saveProfile() {
 async function saveDay(date) {
   if (!CLOUD) return localWrite();
   const d = days[date];
-  const { error } = await sb.from('days').upsert({
+  const row = {
     user_id: user.id, date, weight: d.weight, steps: d.steps, active_cal: d.active_cal,
-    foods: d.foods, updated_at: new Date().toISOString(),
-  });
+    foods: d.foods, activities: d.activities || [], updated_at: new Date().toISOString(),
+  };
+  let { error } = await sb.from('days').upsert(row);
+  // Database not migrated for workouts yet: save everything else
+  if (error && /activities/.test(error.message)) {
+    const { activities, ...rest } = row;
+    ({ error } = await sb.from('days').upsert(rest));
+    if (!error && activities.length) toast('Workouts need a quick Supabase update to save (see README).');
+  }
   if (error) toast("Couldn't save. Check your connection.");
 }
 
-const getDay = (date) => days[date] || { weight: null, steps: null, active_cal: null, foods: [] };
-const ensureDay = (date) => (days[date] ||= { weight: null, steps: null, active_cal: null, foods: [] });
+const emptyDay = () => ({ weight: null, steps: null, active_cal: null, foods: [], activities: [] });
+const getDay = (date) => ({ ...emptyDay(), ...days[date] });
+const ensureDay = (date) => {
+  days[date] ||= emptyDay();
+  days[date].activities ||= [];
+  return days[date];
+};
 const kcalOf = (date) => getDay(date).foods.reduce((s, f) => s + (+f.kcal || 0), 0);
+
+// ---------- workouts ----------
+// MET values from the Compendium of Physical Activities; burn counts only the extra above resting (MET - 1)
+const ACTIVITIES = [
+  { key: 'walk', label: 'Walking (brisk)', icon: '🚶', met: 4.3 },
+  { key: 'run', label: 'Running', icon: '🏃', met: 9.8 },
+  { key: 'tennis', label: 'Tennis', icon: '🎾', met: 7.3 },
+  { key: 'gym', label: 'Gym (weights)', icon: '🏋️', met: 5.0 },
+  { key: 'hiit', label: 'HIIT / class', icon: '🔥', met: 8.0 },
+  { key: 'cycle', label: 'Cycling', icon: '🚴', met: 7.5 },
+  { key: 'swim', label: 'Swimming', icon: '🏊', met: 6.0 },
+  { key: 'hike', label: 'Hiking', icon: '⛰️', met: 6.0 },
+  { key: 'dance', label: 'Dancing', icon: '💃', met: 5.0 },
+  { key: 'yoga', label: 'Yoga / Pilates', icon: '🧘', met: 3.0 },
+];
+const activityOf = (key) => ACTIVITIES.find((a) => a.key === key) || ACTIVITIES[0];
+const burnFor = (key, mins, kg) => Math.round(((activityOf(key).met - 1) * kg * mins) / 60 / 5) * 5;
+const burnOf = (date) => getDay(date).activities.reduce((s, a) => s + (+a.kcal || 0), 0);
 
 // ---------- macros (grams; only on items from photos, barcodes or recent foods that had them) ----------
 const MACROS = ['protein', 'carbs', 'fat'];
@@ -352,6 +382,12 @@ function renderToday() {
   $('#steps-goal').textContent = `Goal ${fmtInt(pl.stepGoal)} steps`;
   setBar($('#steps-bar'), (d.steps || 0) / pl.stepGoal, (d.steps || 0) >= pl.stepGoal ? 'done' : '');
 
+  const burnt = burnOf(viewDate);
+  $('#act-total').textContent = burnt ? `~${fmtInt(burnt)} kcal burnt` : '';
+  $('#act-list').innerHTML = d.activities.map((a, i) =>
+    `<li><span>${activityOf(a.type).icon} ${esc(activityOf(a.type).label)} <span class="muted">· ${a.mins} min</span></span><span class="row gap"><span class="muted">~${fmtInt(a.kcal)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></span></li>`).join('');
+  updateActPreview();
+
   $('#advice').innerHTML = advice().map((a) => `<li><span class="i">${a.icon}</span><span>${esc(a.t)}</span></li>`).join('');
 }
 
@@ -559,6 +595,40 @@ $('#food-form').addEventListener('submit', async (e) => {
 });
 $('#food-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#food-kcal').focus(); } });
 
+// ---------- workouts ----------
+$('#act-type').innerHTML = ACTIVITIES.map((a) => `<option value="${a.key}">${a.icon} ${a.label}</option>`).join('');
+
+function updateActPreview() {
+  const mins = numOrNull($('#act-mins').value);
+  $('#act-preview').textContent = mins > 0 && mins <= 600
+    ? `≈ ${fmtInt(burnFor($('#act-type').value, mins, currentWeight()))} kcal burnt (estimate for your weight)`
+    : 'Calories burnt are on top of your normal day. They are not added to your food budget, which keeps you on pace for the goal.';
+}
+$('#act-type').addEventListener('change', updateActPreview);
+$('#act-mins').addEventListener('input', updateActPreview);
+
+$('#act-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const mins = Math.round(numOrNull($('#act-mins').value) || 0);
+  if (mins <= 0 || mins > 600) return toast('Enter how many minutes (e.g. 45)');
+  const type = $('#act-type').value;
+  const kcal = burnFor(type, mins, currentWeight());
+  ensureDay(viewDate).activities.push({ type, mins, kcal });
+  $('#act-mins').value = '';
+  $('#act-mins').blur();
+  renderToday();
+  toast(`${activityOf(type).label}: ~${fmtInt(kcal)} kcal`);
+  await saveDay(viewDate); // after the toast so a save warning isn't hidden by it
+});
+
+$('#act-list').addEventListener('click', async (e) => {
+  const b = e.target.closest('.x');
+  if (!b) return;
+  ensureDay(viewDate).activities.splice(+b.dataset.i, 1);
+  renderToday();
+  await saveDay(viewDate);
+});
+
 // ---------- photo → calories (Claude via the food-photo Edge Function) ----------
 let photoItems = [];
 
@@ -734,11 +804,12 @@ $('#setup-cancel').addEventListener('click', () => show('plan'));
 $('#edit-goal').addEventListener('click', () => show('setup'));
 
 $('#export').addEventListener('click', () => {
-  const rows = [['date', 'weight_kg', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'steps', 'active_kcal', 'foods']];
+  const rows = [['date', 'weight_kg', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'steps', 'active_kcal', 'workout_kcal', 'workouts', 'foods']];
   for (const d of Object.keys(days).sort()) {
     const x = days[d];
     const mm = macroTotals(d);
-    rows.push([d, x.weight ?? '', kcalOf(d) || '', mm.protein || '', mm.carbs || '', mm.fat || '', x.steps ?? '', x.active_cal ?? '', x.foods.map((f) => `${f.name} (${f.kcal})`).join('; ')]);
+    rows.push([d, x.weight ?? '', kcalOf(d) || '', mm.protein || '', mm.carbs || '', mm.fat || '', x.steps ?? '', x.active_cal ?? '', burnOf(d) || '',
+      (x.activities || []).map((a) => `${activityOf(a.type).label} ${a.mins} min`).join('; '), x.foods.map((f) => `${f.name} (${f.kcal})`).join('; ')]);
   }
   const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
   const a = document.createElement('a');
