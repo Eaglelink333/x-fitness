@@ -326,8 +326,8 @@ function advice() {
 // ---------- views ----------
 function show(view) {
   currentView = view;
-  for (const v of ['auth', 'setup', 'quiz', 'today', 'progress', 'plan']) $('#view-' + v).hidden = v !== view;
-  const main = ['today', 'progress', 'plan'].includes(view);
+  for (const v of ['auth', 'setup', 'quiz', 'today', 'progress', 'coach', 'plan']) $('#view-' + v).hidden = v !== view;
+  const main = ['today', 'progress', 'coach', 'plan'].includes(view);
   $('#tabs').hidden = !main;
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
   renderHeader();
@@ -336,7 +336,8 @@ function show(view) {
   if (view === 'today') renderToday();
   if (view === 'progress') renderProgress();
   if (view === 'plan') renderPlan();
-  window.scrollTo(0, 0);
+  if (view === 'coach') renderCoach(); // scrolls to the latest message itself
+  else window.scrollTo(0, 0);
 }
 
 function rerender() { if (currentView) show(currentView); }
@@ -664,6 +665,137 @@ $('#quiz-go').addEventListener('click', async () => {
     $('#quiz-msg').textContent = err.message || 'Something went wrong. Try again.';
   }
 });
+
+// ---------- coach chat (history kept on this device) ----------
+const CHAT_KEY = () => 'xf-chat-' + (user?.id || 'local');
+let chatLog = null;
+let chatBusy = false;
+
+function loadChat() {
+  if (chatLog) return chatLog;
+  try { chatLog = JSON.parse(localStorage.getItem(CHAT_KEY())) || []; } catch { chatLog = []; }
+  return chatLog;
+}
+function saveChat() {
+  // Trim in place: sendChat keeps a reference to this array while waiting for a reply
+  if (chatLog.length > 40) chatLog.splice(0, chatLog.length - 40);
+  try { localStorage.setItem(CHAT_KEY(), JSON.stringify(chatLog)); } catch {}
+}
+
+// Escaped text → paragraphs, "- " bullets and **bold**
+function mdLite(s) {
+  const out = [];
+  let list = [];
+  const flush = () => { if (list.length) { out.push(`<ul>${list.join('')}</ul>`); list = []; } };
+  for (const raw of esc(s).split('\n')) {
+    const line = raw.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+    const m = line.match(/^\s*(?:[-•*]|\d+\.)\s+(.*)/);
+    if (m) list.push(`<li>${m[1]}</li>`);
+    else { flush(); if (line.trim()) out.push(`<p>${line}</p>`); }
+  }
+  flush();
+  return out.join('');
+}
+
+// Everything the coach can see: targets, progress and the last 14 days
+function coachContext() {
+  const p = profile, pl = plan(), mt = macroTargets(pl), st = status(), tr = trend(), t = todayStr();
+  const recent = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = addDays(t, -i);
+    if (d < p.start_date) continue;
+    const x = getDay(d), m = macroTotals(d);
+    recent.push({
+      date: d, weekday: DAY_NAMES[parseYmd(d).getDay()], weight_kg: x.weight, kcal: kcalOf(d) || null,
+      protein_g: Math.round(m.protein) || null, carbs_g: Math.round(m.carbs) || null, fat_g: Math.round(m.fat) || null,
+      foods_logged: x.foods.length, foods_without_macros: m.missing, steps: x.steps, active_kcal: x.active_cal,
+      workouts: x.activities.map((a) => `${activityOf(a.type).label} ${a.mins} min (~${a.kcal} kcal)`),
+    });
+  }
+  const today = getDay(t);
+  return {
+    today: t, weekday: DAY_NAMES[new Date().getDay()], name: p.name || null, sex: p.sex === 'f' ? 'female' : 'male',
+    age: p.age, height_cm: p.height_cm, start_weight_kg: p.start_weight, goal_weight_kg: p.goal_weight,
+    start_date: p.start_date, goal_date: p.goal_date, days_left: pl.left,
+    weight_7day_avg_kg: +fmt1(pl.w), target_weight_today_kg: +fmt1(targetAt(t)), status: st.label,
+    trend_kg_lost_per_week: tr ? +fmt1(-tr.perWeek) : null, projected_weight_on_goal_date_kg: tr ? +fmt1(tr.atGoal) : null,
+    daily_targets: { kcal: pl.kcal, protein_g: pl.protein, carbs_g: mt.carbs, fat_g: mt.fat, steps: pl.stepGoal },
+    maintenance_kcal_estimate: Math.round(pl.tdee),
+    todays_food: today.foods.map((f) => `${f.name}: ${f.kcal} kcal${hasMacros(f) ? ` (P${f.protein} C${f.carbs} F${f.fat})` : ''}`),
+    todays_workout_in_plan: workouts()[new Date().getDay()].t,
+    personal_plan: p.plan ? { summary: p.plan.summary, week: p.plan.week.map((w) => `${w.day}: ${w.title}`) } : null,
+    questionnaire: p.answers || null,
+    last_14_days: recent,
+  };
+}
+
+function coachGreeting() {
+  const st = status(), pl = plan();
+  const hi = profile.name ? `Hi ${profile.name}!` : 'Hi!';
+  return `${hi} I'm your coach. I can see your weigh-ins, food, steps and workouts. You're **${st.label.toLowerCase()}** with **${pl.left} days** to go.\n\nAsk me anything: how you're tracking, what to eat, how to get past a plateau, or just for a push when motivation is low.`;
+}
+
+const CHAT_PROMPTS = ['How am I tracking?', "Why isn't the scale moving?", 'Give me a high-protein dinner idea', 'What should I focus on this week?', 'I need some motivation'];
+
+function renderCoach() {
+  const log = loadChat();
+  const msgs = [{ role: 'assistant', content: coachGreeting() }, ...log];
+  $('#chat').innerHTML = msgs.map((m) => m.role === 'user'
+    ? `<div class="msg user">${esc(m.content)}</div>`
+    : `<div class="msg coach${m.error ? ' err' : ''}">${mdLite(m.content)}</div>`).join('')
+    + (chatBusy ? '<div class="msg coach typing"><span></span><span></span><span></span></div>' : '');
+  $('#chat-chips').innerHTML = CLOUD && !chatBusy
+    ? CHAT_PROMPTS.map((q) => `<button class="chip" type="button">${esc(q)}</button>`).join('') : '';
+  $('#chat-chips').hidden = log.length >= 2; // suggestions only until the conversation gets going
+  $('#chat-send').disabled = chatBusy || !CLOUD;
+  $('#chat-input').disabled = !CLOUD;
+  if (!CLOUD) $('#chat-input').placeholder = 'The coach needs Supabase sync turned on';
+  $('#chat-clear').hidden = !log.length;
+  requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
+}
+
+async function sendChat(text) {
+  text = text.trim().slice(0, 1000);
+  if (!text || chatBusy || !CLOUD) return;
+  const log = loadChat();
+  log.push({ role: 'user', content: text });
+  chatBusy = true;
+  saveChat();
+  renderCoach();
+  try {
+    // Only real exchanges go to Claude (errors stay local), last 20 messages
+    const history = log.filter((m) => !m.error).slice(-20);
+    while (history.length && history[0].role !== 'user') history.shift();
+    const { data, error } = await sb.functions.invoke('food-photo', { body: { mode: 'chat', messages: history.map(({ role, content }) => ({ role, content })), context: coachContext() } });
+    if (error) throw new Error(await fnError(error));
+    log.push({ role: 'assistant', content: data.reply });
+  } catch (err) {
+    log.pop(); // drop the unanswered question so history stays user/assistant pairs
+    log.push({ role: 'user', content: text, error: true }, { role: 'assistant', content: `${err.message || 'Something went wrong.'} Tap send to try again.`, error: true });
+    $('#chat-input').value = text;
+  }
+  chatBusy = false;
+  saveChat();
+  if (currentView === 'coach') renderCoach();
+}
+
+$('#chat-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const text = $('#chat-input').value;
+  $('#chat-input').value = '';
+  $('#chat-input').style.height = '';
+  sendChat(text);
+});
+$('#chat-input').addEventListener('keydown', (e) => {
+  // Enter sends on desktop; Shift+Enter for a new line
+  if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) { e.preventDefault(); $('#chat-form').requestSubmit(); }
+});
+$('#chat-input').addEventListener('input', (e) => {
+  e.target.style.height = '';
+  e.target.style.height = Math.min(120, e.target.scrollHeight) + 'px';
+});
+$('#chat-chips').addEventListener('click', (e) => { const b = e.target.closest('.chip'); if (b) sendChat(b.textContent); });
+$('#chat-clear').addEventListener('click', () => { chatLog = []; saveChat(); renderCoach(); });
 
 // ---------- Apple Health (via iOS Shortcut URL params) ----------
 function readHealthParams() {
@@ -1042,6 +1174,7 @@ document.addEventListener('visibilitychange', async () => {
 
 // ---------- boot ----------
 async function boot() {
+  chatLog = null; // chat history is per user
   if (CLOUD && !user) { profile = null; days = {}; return show('auth'); }
   try { ({ profile, days } = await loadAll()); }
   catch (err) { toast('Could not load data: ' + err.message); return; }

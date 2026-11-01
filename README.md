@@ -56,6 +56,11 @@ Setup:
 
 Only signed-in users can use it, so nobody else can spend your API credit.
 
+### 6. Coach and personal plan (same function, same key)
+- **Coach tab:** chat with a nutritionist/PT that sees your targets, trend and last 14 days of logs.
+  Chat history stays on the device you use it on.
+- **Questionnaire:** shown after first setup, or from Plan → Personalise. Claude builds a weekly workout plan, meal ideas and tips.
+
 ## Two people, one app
 Each person creates their own account, so data is kept separate. Choosing **Female** in setup switches to:
 - a female workout plan (glutes/legs + dress-ready shoulders, back and arms, plus Pilates/core)

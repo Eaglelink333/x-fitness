@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>X-Fitness</title>
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 <script>
   // Apply the saved theme before first paint so there's no flash
   try { const t = localStorage.getItem('xf-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
@@ -184,6 +184,20 @@
     </div>
   </section>
 
+  <!-- Coach chat -->
+  <section id="view-coach" class="view" hidden>
+    <div class="coach-head row between">
+      <div class="row gap"><span class="coach-avatar">💪</span><div><div class="strong">Your coach</div><div class="muted small">Nutritionist + PT · sees your tracking</div></div></div>
+      <button class="btn small-btn" id="chat-clear" type="button">Clear</button>
+    </div>
+    <div id="chat" class="chat"></div>
+    <div id="chat-chips" class="chips"></div>
+    <form id="chat-form" class="composer">
+      <textarea id="chat-input" rows="1" maxlength="1000" placeholder="Ask your coach anything…" enterkeyhint="send"></textarea>
+      <button class="btn primary" id="chat-send" type="submit" aria-label="Send">↑</button>
+    </form>
+  </section>
+
   <!-- Plan -->
   <section id="view-plan" class="view" hidden>
     <div class="card" id="ai-plan"></div>
@@ -244,6 +258,7 @@
 <nav class="tabs" id="tabs" hidden>
   <button data-view="today" class="on"><span class="ti">●</span>Today</button>
   <button data-view="progress"><span class="ti">◢</span>Progress</button>
+  <button data-view="coach"><span class="ti">💬</span>Coach</button>
   <button data-view="plan"><span class="ti">☰</span>Plan</button>
 </nav>
 
@@ -252,7 +267,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=10"></script>
-<script src="app.js?v=10"></script>
+<script src="config.js?v=11"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

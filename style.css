@@ -136,6 +136,35 @@ input[type="date"] { min-height: 46px; }
 
 .kcal-in { flex: 0 0 92px; }
 h3 { font-size: 15px; margin: 0; }
+
+/* Coach chat */
+.coach-head { padding: 4px 2px; }
+.coach-avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 20px; background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.small-btn { font-size: 14px; padding: 7px 12px; }
+.chat { display: flex; flex-direction: column; gap: 10px; min-height: 40vh; }
+.msg { max-width: 86%; padding: 10px 13px; border-radius: 18px; font-size: 15px; line-height: 1.45; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; background: var(--accent); color: var(--accent-text); border-bottom-right-radius: 6px; white-space: pre-wrap; }
+.msg.coach { align-self: flex-start; background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 6px; }
+.msg.coach p { margin: 0 0 8px; }
+.msg.coach p:last-child, .msg.coach ul:last-child { margin-bottom: 0; }
+.msg.coach ul { margin: 0 0 8px; padding-left: 18px; }
+.msg.coach li { margin-bottom: 4px; }
+.msg.err { border-color: var(--bad); }
+.typing span { display: inline-block; width: 7px; height: 7px; margin-right: 4px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
+.typing span:nth-child(2) { animation-delay: 0.2s; }
+.typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+.composer {
+  position: sticky; bottom: calc(68px + env(safe-area-inset-bottom)); z-index: 4;
+  display: flex; gap: 8px; align-items: flex-end; padding: 8px 0; background: var(--bg);
+}
+.composer textarea {
+  flex: 1; font: inherit; font-size: 16px; color: var(--text); background: var(--card); border: 1px solid var(--line);
+  border-radius: 20px; padding: 10px 14px; resize: none; max-height: 120px; min-width: 0;
+}
+.composer textarea:focus { outline: none; border-color: var(--accent); }
+.composer .btn { border-radius: 50%; width: 44px; height: 44px; padding: 0; font-size: 20px; flex: 0 0 44px; }
+.composer .btn:disabled { opacity: 0.5; }
 .quiz { display: flex; flex-direction: column; gap: 18px; margin: 16px 0 20px; }
 .q-title { font-weight: 700; font-size: 15px; margin-bottom: 8px; }
 .quiz .chips { margin-top: 0; }
