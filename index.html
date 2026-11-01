@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>X-Fitness</title>
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 <header class="top">
@@ -87,6 +87,18 @@
       <p class="muted small">Weigh yourself first thing in the morning, after the toilet and before you eat.</p>
     </div>
 
+    <div class="card" id="photo-card">
+      <input id="photo-input" type="file" accept="image/*" hidden>
+      <button class="snap" id="photo-btn" type="button">
+        <span class="snap-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7.5 6.5H5A2 2 0 0 0 3 8.5v9A2 2 0 0 0 5 19.5h14a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-2.5z"/><circle cx="12" cy="12.75" r="3.5"/></svg>
+        </span>
+        <span class="snap-title">Snap food, label or barcode</span>
+        <span class="snap-sub">Claude works out the calories for you</span>
+      </button>
+      <div id="photo-panel" class="photo-panel" hidden></div>
+    </div>
+
     <div class="card">
       <div class="row between"><h2>Food</h2><span id="kcal-total" class="small strong"></span></div>
       <div class="bar"><div id="kcal-bar"></div></div>
@@ -99,16 +111,9 @@
       <ul id="food-list" class="list"></ul>
     </div>
 
-    <div class="card" id="photo-card">
-      <input id="photo-input" type="file" accept="image/*" hidden>
-      <button class="snap" id="photo-btn" type="button">
-        <span class="snap-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7.5 6.5H5A2 2 0 0 0 3 8.5v9A2 2 0 0 0 5 19.5h14a2 2 0 0 0 2-2v-9a2 2 0 0 0-2-2h-2.5z"/><circle cx="12" cy="12.75" r="3.5"/></svg>
-        </span>
-        <span class="snap-title">Snap food, label or barcode</span>
-        <span class="snap-sub">Claude works out the calories for you</span>
-      </button>
-      <div id="photo-panel" class="photo-panel" hidden></div>
+    <div class="card">
+      <div class="row between"><h2>Macros</h2><span id="macro-note" class="muted small"></span></div>
+      <div id="macros" class="macros"></div>
     </div>
 
     <div class="card">
@@ -205,7 +210,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="config.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

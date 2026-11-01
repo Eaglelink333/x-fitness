@@ -10,6 +10,9 @@
   --good: #16a34a;
   --warn: #d97706;
   --bad: #dc2626;
+  --protein: #4f46e5;
+  --carbs: #0891b2;
+  --fat: #d97706;
   --radius: 16px;
   color-scheme: light;
 }
@@ -26,6 +29,9 @@
     --good: #4ade80;
     --warn: #fbbf24;
     --bad: #f87171;
+    --protein: #818cf8;
+    --carbs: #22d3ee;
+    --fat: #fbbf24;
     color-scheme: dark;
   }
 }
@@ -111,6 +117,15 @@ input[type="date"] { min-height: 46px; }
 .bar > div.done { background: var(--good); }
 
 .kcal-in { flex: 0 0 92px; }
+.macros { display: flex; flex-direction: column; gap: 4px; }
+.macro .row { font-size: 14px; }
+.macro .bar { margin: 4px 0 6px; }
+.macro.protein .bar > div { background: var(--protein); }
+.macro.carbs .bar > div { background: var(--carbs); }
+.macro.fat .bar > div { background: var(--fat); }
+.macro .bar > div.over { background: var(--bad); }
+.mac { display: block; font-size: 12px; color: var(--muted); }
+
 .snap {
   width: 100%; font: inherit; color: var(--text); background: transparent; border: 0; cursor: pointer;
   display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0 6px;

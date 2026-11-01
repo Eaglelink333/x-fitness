@@ -83,6 +83,36 @@ const getDay = (date) => days[date] || { weight: null, steps: null, active_cal: 
 const ensureDay = (date) => (days[date] ||= { weight: null, steps: null, active_cal: null, foods: [] });
 const kcalOf = (date) => getDay(date).foods.reduce((s, f) => s + (+f.kcal || 0), 0);
 
+// ---------- macros (grams; only on items from photos, barcodes or recent foods that had them) ----------
+const MACROS = ['protein', 'carbs', 'fat'];
+const hasMacros = (f) => f.protein != null;
+const macroText = (f) => (hasMacros(f) ? `P ${Math.round(f.protein)} · C ${Math.round(f.carbs)} · F ${Math.round(f.fat)} g` : '');
+
+// Normalises a food entry; macros scale with kcal if you edited the calories
+function foodItem(it, kcal = it.kcal) {
+  const out = { name: String(it.name || 'Food').slice(0, 60), kcal: Math.round(kcal) };
+  if (hasMacros(it) && it.kcal > 0) {
+    const r = kcal / it.kcal;
+    for (const m of MACROS) out[m] = Math.round((+it[m] || 0) * r);
+  }
+  return out;
+}
+
+function macroTotals(date) {
+  const t = { protein: 0, carbs: 0, fat: 0, missing: 0 };
+  for (const f of getDay(date).foods) {
+    if (hasMacros(f)) for (const m of MACROS) t[m] += +f[m] || 0;
+    else t.missing++;
+  }
+  return t;
+}
+
+// Protein from the plan, ~27% of calories from fat, carbs fill the rest
+function macroTargets(pl) {
+  const fat = Math.round((pl.kcal * 0.27) / 9);
+  return { protein: pl.protein, fat, carbs: Math.max(50, Math.round((pl.kcal - pl.protein * 4 - fat * 9) / 4)) };
+}
+
 // ---------- maths ----------
 function weighIns() {
   return Object.keys(days).sort().filter((d) => days[d].weight).map((d) => ({ date: d, w: +days[d].weight }));
@@ -214,6 +244,9 @@ function advice() {
   else if (eaten <= pl.kcal) out.push({ icon: '🍽️', t: `${fmtInt(pl.kcal - eaten)} kcal left today. Make the next meal lean protein + veg.` });
   else out.push({ icon: '🛑', t: `${fmtInt(eaten - pl.kcal)} kcal over today. Kitchen's closed. Herbal tea, water, or a walk if you're hungry.` });
 
+  const proteinLeft = pl.protein - macroTotals(t).protein;
+  if (today.foods.some(hasMacros) && proteinLeft > 30) out.push({ icon: '🥩', t: `${Math.round(proteinLeft)} g protein to go. Easy wins: chicken breast (~45 g), a tin of tuna (~25 g), 200 g Greek yoghurt (~20 g).` });
+
   if (today.steps == null) out.push({ icon: '👟', t: `Step goal: ${fmtInt(pl.stepGoal)}. Run the "Sync X-Fitness" Shortcut to pull steps from Apple Health.` });
   else if (today.steps < pl.stepGoal) {
     const mins = Math.ceil((pl.stepGoal - today.steps) / 110 / 5) * 5;
@@ -303,9 +336,15 @@ function renderToday() {
   $('#kcal-total').textContent = `${fmtInt(eaten)} / ${fmtInt(pl.kcal)} kcal`;
   setBar($('#kcal-bar'), eaten / pl.kcal, eaten > pl.kcal ? 'over' : '');
   $('#food-list').innerHTML = d.foods.map((f, i) =>
-    `<li><span>${esc(f.name)}</span><span class="row gap"><span class="muted">${fmtInt(f.kcal)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></span></li>`).join('');
+    `<li><span>${esc(f.name)}<span class="mac">${macroText(f)}</span></span><span class="row gap"><span class="muted">${fmtInt(f.kcal)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></span></li>`).join('');
   $('#food-chips').innerHTML = recentFoods().map((f, i) =>
     `<button class="chip" data-i="${i}">${esc(f.name)} <b>${fmtInt(f.kcal)}</b></button>`).join('');
+
+  const mt = macroTargets(pl), mm = macroTotals(viewDate);
+  $('#macros').innerHTML = [['protein', 'Protein'], ['carbs', 'Carbs'], ['fat', 'Fat']].map(([k, label]) =>
+    `<div class="macro ${k}"><div class="row between"><span class="strong">${label}</span><span>${Math.round(mm[k])} / ${mt[k]} g</span></div>
+     <div class="bar"><div class="${k !== 'protein' && mm[k] > mt[k] ? 'over' : ''}" style="width:${clamp(mm[k] / mt[k], 0, 1) * 100}%"></div></div></div>`).join('');
+  $('#macro-note').textContent = mm.missing ? `${mm.missing} item${mm.missing > 1 ? 's' : ''} without macros` : '';
 
   $('#photo-card').hidden = !CLOUD; // needs the Supabase Edge Function
   $('#steps').value = d.steps ?? '';
@@ -408,6 +447,8 @@ function renderPlan() {
   $('#targets').innerHTML = [
     ['Calories / day', fmtInt(pl.kcal)],
     ['Protein / day', `${pl.protein} g`],
+    ['Carbs / day', `${macroTargets(pl).carbs} g`],
+    ['Fat / day', `${macroTargets(pl).fat} g`],
     ['Steps / day', fmtInt(pl.stepGoal)],
     ['Expected loss', `${fmt1(pl.weekly)} kg/wk`],
   ].map(([l, v]) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
@@ -501,8 +542,8 @@ $('#w-form').addEventListener('submit', async (e) => {
   if (v) toast('Weight saved');
 });
 
-async function addFood(name, kcal) {
-  ensureDay(viewDate).foods.push({ name: name || 'Food', kcal });
+async function addFood(item) {
+  ensureDay(viewDate).foods.push(foodItem(item));
   renderToday();
   await saveDay(viewDate);
 }
@@ -514,7 +555,7 @@ $('#food-form').addEventListener('submit', async (e) => {
   const name = $('#food-name').value.trim().slice(0, 60);
   $('#food-name').value = ''; $('#food-kcal').value = '';
   $('#food-kcal').blur();
-  await addFood(name, kcal);
+  await addFood({ name, kcal });
 });
 $('#food-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#food-kcal').focus(); } });
 
@@ -548,11 +589,22 @@ async function lookupBarcode(code) {
     const per100 = n['energy-kcal_100g'] ?? (n.energy_100g ? n.energy_100g / 4.184 : null); // energy_100g is kJ
     const brand = p.brands?.split(',')[0]?.trim(), title = p.product_name?.trim() || '';
     const name = ((brand && !title.toLowerCase().includes(brand.toLowerCase()) ? brand + ' ' : '') + title).trim().slice(0, 40) || 'Product';
-    const serving = n['energy-kcal_serving'] ?? (per100 && p.serving_quantity ? (per100 * p.serving_quantity) / 100 : null);
+    const m100 = { protein: n.proteins_100g, carbs: n.carbohydrates_100g, fat: n.fat_100g };
+    const has100 = MACROS.every((m) => m100[m] != null);
+    const mk = (label, grams) => {
+      const it = { name: `${name} (${label})`, kcal: (per100 * grams) / 100 };
+      if (has100) for (const m of MACROS) it[m] = (m100[m] * grams) / 100;
+      return it;
+    };
     const items = [];
-    if (serving) items.push({ name: `${name} (1 serve${p.serving_size ? ', ' + p.serving_size : ''})`, kcal: serving });
-    if (per100 && +p.product_quantity) items.push({ name: `${name} (whole pack)`, kcal: (per100 * p.product_quantity) / 100 });
-    if (per100) items.push({ name: `${name} (100 g)`, kcal: per100 });
+    if (per100 && +p.serving_quantity) items.push(mk(`1 serve, ${p.serving_size || p.serving_quantity + ' g'}`, +p.serving_quantity));
+    else if (n['energy-kcal_serving']) {
+      const it = { name: `${name} (1 serve${p.serving_size ? ', ' + p.serving_size : ''})`, kcal: n['energy-kcal_serving'] };
+      if (n.proteins_serving != null) Object.assign(it, { protein: n.proteins_serving, carbs: n.carbohydrates_serving ?? 0, fat: n.fat_serving ?? 0 });
+      items.push(it);
+    }
+    if (per100 && +p.product_quantity) items.push(mk('whole pack', +p.product_quantity));
+    if (per100) items.push(mk('100 g', 100));
     return items.length ? { name, items } : null;
   } catch { return null; }
 }
@@ -570,7 +622,7 @@ function renderPhotoPanel(state) {
   if (state.error) { el.innerHTML = `<p class="small">${esc(state.error)}</p><div class="row gap"><button class="btn" data-act="close">Close</button></div>`; return; }
   photoItems = state.items;
   el.innerHTML = `<p class="small muted">${esc(state.summary || '')}</p>
-    <ul class="list">${state.items.map((it, i) => `<li><label class="pick"><input type="checkbox" data-i="${i}" ${it.on ? 'checked' : ''}><span>${esc(it.name)}</span></label><input class="kcal-in" type="number" min="1" max="5000" inputmode="numeric" data-k="${i}" value="${Math.round(it.kcal)}"></li>`).join('')}</ul>
+    <ul class="list">${state.items.map((it, i) => `<li><label class="pick"><input type="checkbox" data-i="${i}" ${it.on ? 'checked' : ''}><span>${esc(it.name)}<span class="mac">${macroText(it)}</span></span></label><input class="kcal-in" type="number" min="1" max="5000" inputmode="numeric" data-k="${i}" value="${Math.round(it.kcal)}"></li>`).join('')}</ul>
     <p class="small muted">Tick what you ate and adjust calories if needed.</p>
     <div class="row gap"><button class="btn primary" data-act="add">Add</button><button class="btn" data-act="close">Cancel</button></div>`;
 }
@@ -587,7 +639,10 @@ $('#photo-input').addEventListener('change', async (e) => {
     const { data, error } = await sb.functions.invoke('food-photo', { body: { image, mediaType: 'image/jpeg' } });
     if (error) throw new Error(await fnError(error));
     // Meals: tick every item. Labels/barcodes are alternatives (serve vs pack): tick the first
-    let items = (data.items || []).map((it, i) => ({ ...it, on: data.kind === 'meal' || i === 0 }));
+    let items = (data.items || []).map((it, i) => ({
+      name: it.name, kcal: it.kcal, on: data.kind === 'meal' || i === 0,
+      ...(it.protein_g != null ? { protein: it.protein_g, carbs: it.carbs_g, fat: it.fat_g } : {}),
+    }));
     let summary = data.summary;
     if (data.kind === 'barcode' && data.barcode) {
       renderPhotoPanel({ loading: `Looking up barcode ${data.barcode}…` });
@@ -611,7 +666,7 @@ $('#photo-panel').addEventListener('click', async (e) => {
   document.querySelectorAll('#photo-panel [data-i]').forEach((cb) => {
     if (!cb.checked) return;
     const kcal = Math.round(numOrNull($(`#photo-panel [data-k="${cb.dataset.i}"]`).value) || 0);
-    if (kcal > 0 && kcal <= 5000) { d.foods.push({ name: photoItems[+cb.dataset.i].name.slice(0, 60), kcal }); n++; }
+    if (kcal > 0 && kcal <= 5000) { d.foods.push(foodItem(photoItems[+cb.dataset.i], kcal)); n++; }
   });
   if (!n) return toast('Tick at least one item');
   $('#photo-panel').hidden = true;
@@ -622,7 +677,7 @@ $('#photo-panel').addEventListener('click', async (e) => {
 
 $('#food-chips').addEventListener('click', (e) => {
   const b = e.target.closest('.chip');
-  if (b) { const f = recentCache[+b.dataset.i]; addFood(f.name, f.kcal); }
+  if (b) addFood(recentCache[+b.dataset.i]);
 });
 $('#food-list').addEventListener('click', async (e) => {
   const b = e.target.closest('.x');
@@ -679,10 +734,11 @@ $('#setup-cancel').addEventListener('click', () => show('plan'));
 $('#edit-goal').addEventListener('click', () => show('setup'));
 
 $('#export').addEventListener('click', () => {
-  const rows = [['date', 'weight_kg', 'calories', 'steps', 'active_kcal', 'foods']];
+  const rows = [['date', 'weight_kg', 'calories', 'protein_g', 'carbs_g', 'fat_g', 'steps', 'active_kcal', 'foods']];
   for (const d of Object.keys(days).sort()) {
     const x = days[d];
-    rows.push([d, x.weight ?? '', kcalOf(d) || '', x.steps ?? '', x.active_cal ?? '', x.foods.map((f) => `${f.name} (${f.kcal})`).join('; ')]);
+    const mm = macroTotals(d);
+    rows.push([d, x.weight ?? '', kcalOf(d) || '', mm.protein || '', mm.carbs || '', mm.fat || '', x.steps ?? '', x.active_cal ?? '', x.foods.map((f) => `${f.name} (${f.kcal})`).join('; ')]);
   }
   const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
   const a = document.createElement('a');
