@@ -1,4 +1,4 @@
--- Run once in Supabase → SQL Editor → New query → Run.
+-- Run in Supabase → SQL Editor → New query → Run. Safe to re-run on an existing database.
 
 create table if not exists public.profile (
   user_id      uuid primary key references auth.users on delete cascade,
@@ -12,15 +12,6 @@ create table if not exists public.profile (
   name         text
 );
 
--- Added later: safe to re-run on an existing database
-alter table public.profile add column if not exists name text;
-alter table public.days add column if not exists activities jsonb not null default '[]';
-alter table public.profile add column if not exists answers jsonb;
-alter table public.profile add column if not exists plan jsonb;
--- Background Apple Health sync: the Shortcut sends this key instead of logging in
-alter table public.profile add column if not exists sync_token text unique;
-alter table public.profile add column if not exists tz text;
-
 create table if not exists public.days (
   user_id    uuid not null references auth.users on delete cascade,
   date       date not null,
@@ -32,6 +23,17 @@ create table if not exists public.days (
   updated_at timestamptz not null default now(),
   primary key (user_id, date)
 );
+
+-- Columns added later (after the tables exist, so a fresh database works too)
+alter table public.profile add column if not exists name text;
+alter table public.profile add column if not exists answers jsonb;
+alter table public.profile add column if not exists plan jsonb;
+-- Background Apple Health sync: the Shortcut sends this key instead of logging in
+alter table public.profile add column if not exists sync_token text unique;
+alter table public.profile add column if not exists tz text;
+alter table public.profile add column if not exists favorites jsonb;
+alter table public.days add column if not exists activities jsonb not null default '[]';
+alter table public.days add column if not exists measure jsonb;
 
 alter table public.profile enable row level security;
 alter table public.days    enable row level security;
@@ -56,3 +58,11 @@ alter table public.chat enable row level security;
 drop policy if exists "own chat" on public.chat;
 create policy "own chat" on public.chat
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Progress photos: a private bucket, each person can only reach their own folder
+insert into storage.buckets (id, name, public) values ('progress', 'progress', false) on conflict (id) do nothing;
+drop policy if exists "own progress photos" on storage.objects;
+create policy "own progress photos" on storage.objects
+  for all to authenticated
+  using (bucket_id = 'progress' and (storage.foldername(name))[1] = auth.uid()::text)
+  with check (bucket_id = 'progress' and (storage.foldername(name))[1] = auth.uid()::text);

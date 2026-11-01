@@ -2,6 +2,8 @@
 'use strict';
 
 const CFG = window.XF_CONFIG || {};
+// Read before supabase-js consumes the URL: a password-reset link lands here with type=recovery
+let recovering = /type=recovery/.test(location.hash);
 const CLOUD = !!(CFG.supabaseUrl && CFG.supabaseAnonKey && window.supabase);
 const sb = CLOUD ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey) : null;
 const KCAL_PER_KG = 7700;
@@ -49,7 +51,9 @@ async function loadAll() {
   if (p.error) throw p.error;
   if (d.error) throw d.error;
   const map = {};
-  for (const r of d.data) map[r.date] = { weight: numOrNull(r.weight), steps: r.steps, active_cal: r.active_cal, foods: r.foods || [], activities: r.activities || [] };
+  for (const r of d.data) map[r.date] = { weight: numOrNull(r.weight), steps: r.steps, active_cal: r.active_cal, foods: r.foods || [], activities: r.activities || [], measure: r.measure || null };
+  // Changes that haven't reached the server yet win over what it sent
+  for (const [date, fields] of Object.entries(pendingRead())) map[date] = { ...emptyDay(), ...map[date], ...fields };
   let prof = null;
   if (p.data) {
     const { user_id, ...rest } = p.data;
@@ -67,32 +71,70 @@ async function saveProfile() {
   if (!CLOUD) return localWrite();
   let { error } = await sb.from('profile').upsert({ user_id: user.id, ...profile });
   // Database not migrated for newer columns yet: keep the plan on this device and save the rest
-  if (error && /name|plan|answers|sync_token|tz/.test(error.message)) {
-    const { name, plan, answers, sync_token, tz, ...rest } = profile;
-    try { localStorage.setItem(PLAN_KEY(), JSON.stringify({ plan, answers })); } catch {}
+  if (error && /name|plan|answers|sync_token|tz|favorites/.test(error.message)) {
+    const { name, plan, answers, sync_token, tz, favorites, ...rest } = profile;
+    try { localStorage.setItem(PLAN_KEY(), JSON.stringify({ plan, answers, favorites })); } catch {}
     ({ error } = await sb.from('profile').upsert({ user_id: user.id, ...rest }));
   }
   if (error) throw error;
 }
 
-async function saveDay(date) {
-  if (!CLOUD) return localWrite();
-  const d = days[date];
-  const row = {
-    user_id: user.id, date, weight: d.weight, steps: d.steps, active_cal: d.active_cal,
-    foods: d.foods, activities: d.activities || [], updated_at: new Date().toISOString(),
-  };
-  let { error } = await sb.from('days').upsert(row);
-  // Database not migrated for workouts yet: save everything else
-  if (error && /activities/.test(error.message)) {
-    const { activities, ...rest } = row;
-    ({ error } = await sb.from('days').upsert(rest));
-    if (!error && activities.length) toast('Workouts need a quick Supabase update to save (see README).');
-  }
-  if (error) toast("Couldn't save. Check your connection.");
+// Saves only the fields you changed, so a save here can't undo what the Health Shortcut or
+// another device wrote meanwhile. Changes wait on this device until the server has them.
+const DAY_FIELDS = ['weight', 'steps', 'active_cal', 'foods', 'activities', 'measure'];
+const PENDING_KEY = () => 'xf-pending-' + (user?.id || 'local');
+function pendingRead() { try { return JSON.parse(localStorage.getItem(PENDING_KEY())) || {}; } catch { return {}; } }
+function pendingWrite(p) {
+  try { Object.keys(p).length ? localStorage.setItem(PENDING_KEY(), JSON.stringify(p)) : localStorage.removeItem(PENDING_KEY()); } catch {}
 }
 
-const emptyDay = () => ({ weight: null, steps: null, active_cal: null, foods: [], activities: [] });
+async function saveDay(date, fields = DAY_FIELDS) {
+  if (!CLOUD) return localWrite();
+  const d = ensureDay(date), pend = pendingRead();
+  pend[date] = { ...pend[date], ...Object.fromEntries(fields.map((k) => [k, d[k] ?? emptyDay()[k]])) };
+  pendingWrite(pend);
+  return flushPending();
+}
+
+let flushing = null, offlineWarned = false;
+function flushPending() {
+  // One flush at a time; a save made during a flush is picked up by the next loop pass.
+  // .finally is attached after the assignment so an instant (empty) flush can't leave it stuck.
+  if (!flushing) flushing = sendPending().finally(() => { flushing = null; });
+  return flushing;
+}
+async function sendPending() {
+  for (let pass = 0; pass < 5; pass++) {
+    const pend = pendingRead(), dates = Object.keys(pend);
+    if (!dates.length) { offlineWarned = false; return true; }
+    for (const date of dates) {
+      let row = { user_id: user.id, date, ...pend[date], updated_at: new Date().toISOString() };
+      let { error } = await sb.from('days').upsert(row);
+      // Database not migrated for newer columns yet: save the rest
+      for (const col of ['activities', 'measure']) {
+        if (error && error.message.includes(col)) {
+          const { [col]: dropped, ...rest } = row;
+          row = rest;
+          ({ error } = await sb.from('days').upsert(row));
+          if (!error) toast(col === 'measure' ? 'Measurements need the Supabase SQL update to save (see README).' : 'Workouts need a quick Supabase update to save (see README).');
+        }
+      }
+      if (error) {
+        if (!offlineWarned) toast("Saved on this device. It will sync when you're back online.");
+        offlineWarned = true;
+        return false;
+      }
+      // Only clear what was sent; a newer edit to the same day stays queued
+      const now = pendingRead();
+      if (JSON.stringify(now[date]) === JSON.stringify(pend[date])) delete now[date];
+      pendingWrite(now);
+    }
+  }
+  return true;
+}
+addEventListener('online', () => { if (user) flushPending(); });
+
+const emptyDay = () => ({ weight: null, steps: null, active_cal: null, foods: [], activities: [], measure: null });
 const getDay = (date) => ({ ...emptyDay(), ...days[date] });
 const ensureDay = (date) => {
   days[date] ||= emptyDay();
@@ -207,20 +249,23 @@ function plan() {
   const toLose = Math.max(0, w - p.goal_weight);
   const needed = (toLose * KCAL_PER_KG) / left;
   const floor = p.sex === 'm' ? 1500 : 1200;
-  const deficit = Math.max(0, Math.min(needed, 1000, tdee - floor));
+  // After the goal date: eat at maintenance and keep moving, so the weight stays off
+  const maint = diffDays(todayStr(), p.goal_date) < 0;
+  const deficit = maint ? 0 : Math.max(0, Math.min(needed, 1000, tdee - floor));
   const kcal = Math.round((tdee - deficit) / 10) * 10;
   const kcalPerStep = 0.0005 * w;
-  const shortfall = Math.max(0, needed - deficit);
+  const shortfall = maint ? 0 : Math.max(0, needed - deficit);
   const extraSteps = Math.ceil(shortfall / kcalPerStep / 500) * 500;
   const stepGoal = Math.min(16000, BASE_STEPS + extraSteps);
   const dailyBurn = deficit + (stepGoal - BASE_STEPS) * kcalPerStep;
   const projected = w - (dailyBurn * left) / KCAL_PER_KG;
   const protein = Math.round((p.goal_weight * (p.sex === 'f' ? 1.6 : 1.8)) / 5) * 5;
-  return { w, left, tdee, kcal, deficit, needed, floor, stepGoal, extraSteps, projected, protein, toLose, kcalPerStep, weekly: (dailyBurn * 7) / KCAL_PER_KG };
+  return { w, left, tdee, kcal, deficit, needed, floor, stepGoal, extraSteps, projected, protein, toLose, kcalPerStep, weekly: (dailyBurn * 7) / KCAL_PER_KG, maint };
 }
 
 function status() {
   if (!weighIns().length) return { cls: '', label: 'Day 1: log your weight' };
+  if (diffDays(todayStr(), profile.goal_date) < 0) return { cls: 'good', label: 'Maintenance mode' };
   const d = currentWeight() - targetAt(todayStr());
   if (d <= -0.3) return { cls: 'good', label: `Ahead by ${fmt1(-d)} kg`, d };
   if (d <= 0.4) return { cls: 'good', label: 'On track', d };
@@ -356,7 +401,7 @@ function advice() {
 // ---------- views ----------
 function show(view) {
   currentView = view;
-  for (const v of ['auth', 'setup', 'quiz', 'today', 'progress', 'coach', 'plan']) $('#view-' + v).hidden = v !== view;
+  for (const v of ['auth', 'reset', 'setup', 'quiz', 'today', 'progress', 'coach', 'plan']) $('#view-' + v).hidden = v !== view;
   const main = ['today', 'progress', 'coach', 'plan'].includes(view);
   $('#tabs').hidden = !main;
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
@@ -405,7 +450,7 @@ function renderHeader() {
   $('.brand').innerHTML = profile?.name ? `Hi <b>${esc(profile.name)}</b>` : '<b>X</b>-Fitness';
   if (!profile) { $('#countdown').textContent = ''; return; }
   const left = diffDays(todayStr(), profile.goal_date);
-  $('#countdown').textContent = left > 0 ? `${left} days to ${fmtDate(profile.goal_date)}` : left === 0 ? 'Today is the day 💍' : 'Goal date passed';
+  $('#countdown').textContent = left > 0 ? `${left} days to ${fmtDate(profile.goal_date)}` : left === 0 ? 'Today is the day 💍' : 'Maintenance mode';
 }
 
 function renderSetup() {
@@ -436,13 +481,17 @@ function renderToday() {
   const lost = p.start_weight - pl.w, total = p.start_weight - p.goal_weight;
   $('#status-pill').textContent = st.label;
   $('#status-pill').className = 'pill ' + st.cls;
-  $('#hero-days').textContent = `${pl.left} days left`;
+  $('#hero-days').textContent = pl.maint ? 'Holding steady' : `${pl.left} day${pl.left === 1 ? '' : 's'} left`;
   $('#lost').textContent = fmt1(Math.max(0, lost));
   $('#togo').textContent = fmt1(Math.max(0, pl.w - p.goal_weight));
   setBar($('#prog-bar'), total > 0 ? lost / total : 0, lost >= total ? 'done' : '');
   $('#prog-sub').textContent = weighIns().length
     ? `7-day avg ${fmt1(pl.w)} kg · target today ${fmt1(targetAt(t))} kg · goal ${fmt1(p.goal_weight)} kg`
     : `Start ${fmt1(p.start_weight)} kg → goal ${fmt1(p.goal_weight)} kg`;
+  const sk = streaks(pl);
+  const streakBits = [sk.logged >= 2 && `${sk.logged}-day logging streak`, sk.onTarget >= 2 && `${sk.onTarget} days on target in a row`].filter(Boolean);
+  $('#hero-streak').hidden = !streakBits.length;
+  $('#hero-streak').textContent = streakBits.join(' · ');
 
   $('#w-input').value = d.weight ?? '';
   const prev = weighIns().filter((x) => x.date < viewDate).pop();
@@ -457,8 +506,14 @@ function renderToday() {
   if (editingFood && editingFood.date !== viewDate) editingFood = null;
   $('#food-list').innerHTML = d.foods.map((f, i) => editingFood?.i === i ? foodEditRow(f, i) :
     `<li><button class="food-main" type="button" data-edit="${i}" aria-label="Edit ${esc(f.name)}"><span>${esc(f.name)}<span class="mac">${macroText(f)}</span></span><span class="muted">${fmtInt(f.kcal)}</span></button><button class="x" data-i="${i}" aria-label="Remove">×</button></li>`).join('');
-  $('#food-chips').innerHTML = recentFoods().map((f, i) =>
-    `<button class="chip" data-i="${i}">${esc(f.name)} <b>${fmtInt(f.kcal)}</b></button>`).join('');
+  // Favourites first, then recent foods you haven't starred
+  const favs = profile.favorites || [], favKeys = new Set(favs.map((f) => f.name.toLowerCase()));
+  chipFoods = [...favs.map((f) => ({ ...f, fav: true })), ...recentFoods().filter((f) => !favKeys.has(f.name.toLowerCase()))].slice(0, 14);
+  $('#food-chips').innerHTML = chipFoods.map((f, i) =>
+    `<button class="chip${f.fav ? ' fav' : ''}" data-i="${i}">${f.fav ? '<span class="star" aria-label="Favourite">★</span> ' : ''}${esc(f.name)} <b>${fmtInt(f.kcal)}</b></button>`).join('');
+  const prevFoods = getDay(addDays(viewDate, -1)).foods;
+  $('#copy-yday').hidden = !prevFoods.length;
+  $('#copy-yday').textContent = `Copy food from ${viewDate === todayStr() ? 'yesterday' : fmtDate(addDays(viewDate, -1))} (${prevFoods.length})`;
 
   const mt = macroTargets(pl), mm = macroTotals(viewDate);
   $('#macros').innerHTML = [['protein', 'Protein'], ['carbs', 'Carbs'], ['fat', 'Fat']].map(([k, label]) =>
@@ -485,8 +540,9 @@ function renderToday() {
 
   const burnt = burnOf(viewDate);
   $('#act-total').textContent = burnt ? `~${fmtInt(burnt)} kcal burnt` : '';
-  $('#act-list').innerHTML = d.activities.map((a, i) =>
-    `<li><span>${activityOf(a.type).icon} ${esc(actLabel(a))} <span class="muted">· ${a.mins} min${a.src === 'watch' ? ' · ⌚ Watch' : ''}</span></span><span class="row gap"><span class="muted">~${fmtInt(a.kcal)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></span></li>`).join('');
+  if (editingAct && editingAct.date !== viewDate) editingAct = null;
+  $('#act-list').innerHTML = d.activities.map((a, i) => editingAct?.i === i ? actEditRow(a, i) :
+    `<li><button class="food-main" type="button" data-edit="${i}" aria-label="Edit ${esc(actLabel(a))}"><span>${activityOf(a.type).icon} ${esc(actLabel(a))} <span class="muted">· ${a.mins} min${a.src === 'watch' ? ' · ⌚ Watch' : ''}</span></span><span class="muted">~${fmtInt(a.kcal)}</span></button><button class="x" data-i="${i}" aria-label="Remove">×</button></li>`).join('');
   updateActPreview();
 
   const nt = netOf(viewDate, pl);
@@ -513,8 +569,42 @@ function foodEditRow(f, i) {
       <label>kcal<input name="kcal" type="number" min="0" max="5000" inputmode="numeric" value="${Math.round(f.kcal)}" required></label>
       ${m('protein', 'Protein g')}${m('carbs', 'Carbs g')}${m('fat', 'Fat g')}
     </div>
+    <button class="text-btn fav-btn" type="button" data-fav="${i}">${isFav(f) ? '★ In favourites (tap to remove)' : '☆ Add to favourites'}</button>
     <div class="row gap"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" data-cancel>Cancel</button></div>
   </form></li>`;
+}
+
+// Tap a workout to change its type, minutes or calories
+let editingAct = null;
+function actEditRow(a, i) {
+  return `<li class="food-edit"><form data-i="${i}" class="stack">
+    <select name="type" aria-label="Workout">${ACTIVITIES.map((x) => `<option value="${x.key}"${x.key === a.type ? ' selected' : ''}>${x.icon} ${esc(x.label)}</option>`).join('')}</select>
+    <div class="grid2">
+      <label>Minutes<input name="mins" type="number" min="1" max="600" inputmode="numeric" value="${a.mins}" required></label>
+      <label>kcal<input name="kcal" type="number" min="0" max="3000" inputmode="numeric" value="${Math.round(a.kcal)}"></label>
+    </div>
+    ${a.src === 'watch' ? '<p class="muted small">From your Watch: the next Health sync replaces it.</p>' : ''}
+    <div class="row gap"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" data-cancel>Cancel</button></div>
+  </form></li>`;
+}
+
+// Days in a row with food logged (today counts once you log), and finished days at or under target
+function streaks(pl) {
+  const t = todayStr(), start = profile.start_date;
+  let logged = 0, onTarget = 0;
+  for (let d = kcalOf(t) > 0 ? t : addDays(t, -1); d >= start && kcalOf(d) > 0; d = addDays(d, -1)) logged++;
+  for (let d = addDays(t, -1); d >= start && kcalOf(d) > 0 && kcalOf(d) <= pl.kcal; d = addDays(d, -1)) onTarget++;
+  return { logged, onTarget };
+}
+
+// ---------- favourites (synced in the profile) ----------
+let chipFoods = [];
+const isFav = (f) => (profile.favorites || []).some((x) => x.name.toLowerCase() === f.name.toLowerCase());
+async function toggleFavourite(f) {
+  const favs = profile.favorites || [];
+  profile.favorites = isFav(f) ? favs.filter((x) => x.name.toLowerCase() !== f.name.toLowerCase()) : [foodItem(f), ...favs].slice(0, 12);
+  toast(isFav(f) ? `★ ${f.name} added to favourites` : `Removed ${f.name} from favourites`);
+  try { await saveProfile(); } catch { toast("Couldn't save favourites. Check your connection."); }
 }
 
 let recentCache = [];
@@ -563,12 +653,21 @@ function renderProgress() {
   let datasets, note, head;
   if (chartMode === 'weight') {
     const ws = labels.map((d) => getDay(d).weight);
+    // Smooth line = 7-day average of weigh-ins, so daily water swings don't look like setbacks
+    const wi = weighIns();
+    const trendLine = labels.map((d) => {
+      if (d > t) return null;
+      const win = wi.filter((x) => x.date <= d && diffDays(x.date, d) < 7);
+      return win.length ? +avg(win.map((x) => x.w)).toFixed(2) : null;
+    });
+    const lastT = trendLine.findLastIndex((w) => w != null);
     datasets = [
-      { type: 'line', label: 'Weight', data: ws, borderColor: accent, borderWidth: 2.5, tension: 0.35, spanGaps: true, cubicInterpolationMode: 'monotone',
+      { type: 'line', label: '7-day avg', data: trendLine, borderColor: accent, borderWidth: 2.5, tension: 0.35, spanGaps: true, cubicInterpolationMode: 'monotone',
         fill: 'start', backgroundColor: fade(alpha(accent, 0.18), alpha(accent, 0)),
-        pointRadius: (c) => (c.raw == null ? 0 : c.dataIndex === ws.findLastIndex((w) => w != null) ? 5 : 0),
-        pointBackgroundColor: (c) => (c.dataIndex === ws.findLastIndex((w) => w != null) ? accent : card),
-        pointBorderColor: accent, pointBorderWidth: 2, pointHoverRadius: 6, order: 1 },
+        pointRadius: (c) => (c.dataIndex === lastT ? 5 : 0), pointBackgroundColor: accent,
+        pointBorderColor: card, pointBorderWidth: 2, pointHoverRadius: 5, order: 1 },
+      { type: 'line', label: 'Weigh-in', data: ws, showLine: false, pointRadius: (c) => (c.raw == null ? 0 : 2.5),
+        pointBackgroundColor: alpha(accent, 0.45), pointBorderWidth: 0, pointHoverRadius: 4, order: 1 },
       { ...dashed, label: 'Target', data: labels.map((d) => +targetAt(d).toFixed(2)) },
       // Goal marker at the end of the path
       { type: 'line', label: 'Goal', data: labels.map((d, i) => (i === labels.length - 1 ? p.goal_weight : null)), pointRadius: 5, pointStyle: 'rectRot',
@@ -576,7 +675,7 @@ function renderProgress() {
     ];
     const last = weighIns().filter((x) => x.date <= t).pop();
     head = last ? [`${fmt1(pl.w)} kg`, `7-day average · ${fmt1(p.start_weight - pl.w)} kg down since ${fmtDate(p.start_date)}`] : ['–', 'Log your first weigh-in'];
-    note = 'Your weigh-ins against the dashed path to your goal. Stay on or under it.';
+    note = 'Dots are your weigh-ins; the line is your 7-day average. Keep it on or under the dashed path.';
   } else if (chartMode === 'kcal') {
     const ks = labels.map((d) => kcalOf(d) || null);
     datasets = [
@@ -651,6 +750,8 @@ function renderProgress() {
     [`Projected ${fmtDate(p.goal_date)}`, tr ? `${fmt1(tr.atGoal)} kg` : '–'],
     ['Avg calories (7d)', avgKcal ? fmtInt(avgKcal) : '–'],
     ['Avg steps (7d)', avgSteps != null ? fmtInt(avgSteps) : '–'],
+    ['Logging streak', `${streaks(pl).logged} days`],
+    ['On target in a row', `${streaks(pl).onTarget} days`],
   ].map(([l, v]) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
 
   const rows = [];
@@ -661,7 +762,137 @@ function renderProgress() {
     rows.push(`<tr data-date="${d}"><td>${fmtDate(d, { weekday: 'short', day: 'numeric' })}</td><td>${x.weight ? fmt1(x.weight) : '–'}</td><td>${k ? fmtInt(k) : '–'}</td><td>${x.steps != null ? fmtInt(x.steps) : '–'}</td></tr>`);
   }
   $('#hist').innerHTML = rows.join('');
+  renderWeekly();
+  renderMeasures();
 }
+
+// ---------- weekly check-in (Claude, on request, cached per week on this device) ----------
+const WEEKLY_KEY = () => 'xf-weekly-' + (user?.id || 'local');
+const weekKey = () => { const d = new Date(); return addDays(todayStr(), -((d.getDay() + 6) % 7)); }; // Monday of this week
+let weeklyBusy = false;
+function renderWeekly() {
+  $('#weekly-card').hidden = !CLOUD;
+  if (!CLOUD) return;
+  let c = null; try { c = JSON.parse(localStorage.getItem(WEEKLY_KEY())); } catch {}
+  const fresh = c && c.week === weekKey() ? c : null;
+  $('#weekly-headline').hidden = !fresh;
+  $('#weekly-headline').textContent = fresh?.data.headline || '';
+  $('#weekly').innerHTML = fresh ? fresh.data.items.map((a) => `<li><span class="i">${esc(a.icon)}</span><span><span class="t">${esc(a.title)}</span>${esc(a.text)}</span></li>`).join('') : '';
+  $('#weekly-meta').textContent = fresh ? `Updated ${fmtDate(fresh.date, { weekday: 'short', day: 'numeric', month: 'short' })}` : '';
+  $('#weekly-go').disabled = weeklyBusy;
+  $('#weekly-go').textContent = weeklyBusy ? 'Your coach is reviewing your week…' : fresh ? 'Refresh check-in' : "Get this week's check-in";
+  $('#weekly-go').className = fresh ? 'btn' : 'btn primary';
+}
+$('#weekly-go').addEventListener('click', async () => {
+  if (weeklyBusy) return;
+  weeklyBusy = true; renderWeekly();
+  try {
+    const { data, error } = await sb.functions.invoke('food-photo', { body: { mode: 'weekly', context: coachContext() } });
+    if (error) throw new Error(await fnError(error));
+    if (!data?.items?.length) throw new Error('No check-in came back. Try again.');
+    try { localStorage.setItem(WEEKLY_KEY(), JSON.stringify({ week: weekKey(), date: todayStr(), data })); } catch {}
+  } catch (err) { toast(err.message || 'Something went wrong. Try again.'); }
+  weeklyBusy = false;
+  if (currentView === 'progress') renderWeekly();
+});
+
+// ---------- measurements + progress photos ----------
+const MEASURES = [['waist', 'Waist'], ['hips', 'Hips'], ['chest', 'Chest'], ['arm', 'Arm']];
+function measureSeries(k) {
+  return Object.keys(days).sort().filter((d) => days[d].measure?.[k] != null).map((d) => ({ date: d, v: +days[d].measure[k] }));
+}
+function measureSummary() {
+  const out = {};
+  for (const [k] of MEASURES) {
+    const s = measureSeries(k);
+    if (s.length) out[k + '_cm'] = { latest: s.at(-1).v, change_since_first: +(s.at(-1).v - s[0].v).toFixed(1), first_date: s[0].date };
+  }
+  return Object.keys(out).length ? out : null;
+}
+function renderMeasures() {
+  const t = todayStr(), today = getDay(t).measure || {};
+  const form = $('#measure-form');
+  for (const [k] of MEASURES) {
+    const last = measureSeries(k).at(-1);
+    form.elements[k].value = today[k] ?? '';
+    form.elements[k].placeholder = last ? String(last.v) : 'cm';
+  }
+  $('#measure-list').innerHTML = MEASURES.map(([k, label]) => {
+    const s = measureSeries(k);
+    if (!s.length) return '';
+    const ch = s.at(-1).v - s[0].v;
+    const delta = s.length > 1 ? `<span class="${ch <= 0 ? 'good-t' : 'bad-t'}">${ch <= 0 ? '−' : '+'}${fmt1(Math.abs(ch))} cm</span> since ${fmtDate(s[0].date)}` : `first on ${fmtDate(s[0].date)}`;
+    return `<li><span>${label}</span><span class="small">${fmt1(s.at(-1).v)} cm · ${delta}</span></li>`;
+  }).join('');
+  $('#pphoto-wrap').hidden = !CLOUD;
+  if (CLOUD && !photosLoaded) loadPhotos();
+}
+$('#measure-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const t = todayStr(), m = {};
+  for (const [k] of MEASURES) {
+    const v = numOrNull(e.target.elements[k].value);
+    if (v != null && (v < 10 || v > 250)) return toast('That measurement looks off. Use centimetres.');
+    if (v != null) m[k] = Math.round(v * 10) / 10;
+  }
+  ensureDay(t).measure = Object.keys(m).length ? m : null;
+  document.activeElement?.blur();
+  renderMeasures();
+  toast('Measurements saved');
+  await saveDay(t, ['measure']);
+});
+
+// Private Supabase Storage bucket "progress", one folder per user
+let photosLoaded = false, photoList = [];
+async function loadPhotos() {
+  photosLoaded = true;
+  const { data, error } = await sb.storage.from('progress').list(user.id, { limit: 60, sortBy: { column: 'name', order: 'desc' } });
+  if (error) { $('#pphotos').innerHTML = '<p class="muted small">Photos need the Supabase storage setup (see README).</p>'; return; }
+  const files = (data || []).filter((f) => f.name.endsWith('.jpg'));
+  if (!files.length) { photoList = []; $('#pphotos').innerHTML = '<p class="muted small">No photos yet. Same spot, same light, once a week works best.</p>'; return; }
+  const paths = files.map((f) => `${user.id}/${f.name}`);
+  const { data: urls } = await sb.storage.from('progress').createSignedUrls(paths, 3600);
+  photoList = (urls || []).map((u, i) => ({ path: paths[i], url: u.signedUrl, date: files[i].name.slice(0, 10) })).filter((p) => p.url);
+  $('#pphotos').innerHTML = photoList.map((p, i) =>
+    `<button class="pphoto" type="button" data-i="${i}"><img src="${esc(p.url)}" alt="Progress photo, ${esc(fmtDate(p.date))}" loading="lazy"><span>${esc(fmtDate(p.date))}</span></button>`).join('');
+}
+$('#pphoto-btn').addEventListener('click', () => $('#pphoto-input').click());
+$('#pphoto-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  toast('Uploading photo…');
+  try {
+    const b64 = await resizeImage(file, 1400);
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const path = `${user.id}/${todayStr()}-${Date.now()}.jpg`;
+    const { error } = await sb.storage.from('progress').upload(path, new Blob([bytes], { type: 'image/jpeg' }), { contentType: 'image/jpeg' });
+    if (error) throw error;
+    toast('Photo saved');
+    await loadPhotos();
+  } catch (err) { toast("Couldn't upload: " + (err.message || 'check your connection')); }
+});
+$('#pphotos').addEventListener('click', (e) => {
+  const b = e.target.closest('.pphoto');
+  if (!b) return;
+  const p = photoList[+b.dataset.i], dlg = $('#pphoto-view');
+  dlg.querySelector('img').src = p.url;
+  dlg.querySelector('img').alt = `Progress photo, ${fmtDate(p.date)}`;
+  dlg.querySelector('.pv-date').textContent = fmtDate(p.date, { weekday: 'long', day: 'numeric', month: 'long' });
+  dlg.dataset.path = p.path;
+  dlg.showModal();
+});
+$('#pphoto-view').addEventListener('click', async (e) => {
+  const dlg = $('#pphoto-view');
+  if (e.target === dlg || e.target.closest('[data-close]')) return dlg.close();
+  if (!e.target.closest('[data-delete]')) return;
+  if (!confirm('Delete this photo? This can’t be undone.')) return;
+  const { error } = await sb.storage.from('progress').remove([dlg.dataset.path]);
+  dlg.close();
+  if (error) return toast("Couldn't delete: " + error.message);
+  toast('Photo deleted');
+  await loadPhotos();
+});
 
 function renderPlan() {
   const p = profile, pl = plan();
@@ -675,7 +906,9 @@ function renderPlan() {
   ].map(([l, v]) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
 
   let note;
-  if (pl.toLose <= 0) {
+  if (pl.maint) {
+    note = `Your goal date has passed, so you're in maintenance: about ${fmtInt(pl.kcal)} kcal a day keeps your weight steady. Keep the protein, training and ${fmtInt(BASE_STEPS)} steps going, and if your 7-day average creeps up by 1 kg or more, eat ~300 kcal less for a week or two.`;
+  } else if (pl.toLose <= 0) {
     note = '🎉 You have hit your goal weight. Your calories are set to maintenance. Keep training and stay steady.';
   } else {
     note = `To lose ${fmt1(pl.toLose)} kg in ${pl.left} days you need a deficit of about ${fmtInt(pl.needed)} kcal/day (your maintenance is ~${fmtInt(pl.tdee)}). `;
@@ -740,7 +973,7 @@ $('#meal-ideas').addEventListener('click', async (e) => {
   const t = todayStr();
   ensureDay(t).foods.push(foodItem({ name: m.name, kcal: m.kcal, protein: m.protein_g, carbs: m.carbs_g, fat: m.fat_g }));
   toast(`Added ${m.name} to today`);
-  await saveDay(t);
+  await saveDay(t, ['foods']);
 });
 
 // ---------- questionnaire ----------
@@ -971,6 +1204,8 @@ function coachContext() {
     today: t, weekday: DAY_NAMES[new Date().getDay()], local_time: fmtTime(Date.now()), name: p.name || null, sex: p.sex === 'f' ? 'female' : 'male',
     age: p.age, height_cm: p.height_cm, start_weight_kg: p.start_weight, goal_weight_kg: p.goal_weight,
     start_date: p.start_date, goal_date: p.goal_date, days_left: pl.left,
+    phase: pl.maint ? 'maintenance: the goal date has passed, so the aim is holding the weight steady' : 'weight loss',
+    streaks: streaks(pl), measurements: measureSummary(),
     weight_7day_avg_kg: +fmt1(pl.w), target_weight_today_kg: +fmt1(targetAt(t)), status: st.label,
     trend_kg_lost_per_week: tr ? +fmt1(-tr.perWeek) : null, projected_weight_on_goal_date_kg: tr ? +fmt1(tr.atGoal) : null,
     daily_targets: { kcal: pl.kcal, protein_g: pl.protein, carbs_g: mt.carbs, fat_g: mt.fat, move_goal_steps: pl.stepGoal },
@@ -1182,17 +1417,25 @@ async function applyHealth() {
     if (synced[0]?.name === 'Apple Watch exercise') bits.push(`${synced[0].mins} exercise min`);
     else if (synced.length) bits.push(`${synced.length} workout${synced.length > 1 ? 's' : ''}`);
   }
-  await saveDay(h.date);
+  await saveDay(h.date, ['weight', 'steps', 'active_cal', 'activities']);
   if (bits.length) toast('Synced from Apple Health: ' + bits.join(', '));
 }
 
 // ---------- events ----------
 let toastTimer;
-function toast(msg) {
+// Pass undo to show an Undo button for a few seconds (e.g. after deleting something)
+function toast(msg, undo) {
   const el = $('#toast');
-  el.textContent = msg; el.hidden = false;
+  el.textContent = msg;
+  if (undo) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'toast-undo'; b.textContent = 'Undo';
+    b.onclick = () => { el.hidden = true; undo(); };
+    el.append(' ', b);
+  }
+  el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (el.hidden = true), 3200);
+  toastTimer = setTimeout(() => (el.hidden = true), undo ? 6000 : 3200);
 }
 
 document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => {
@@ -1210,14 +1453,14 @@ $('#w-form').addEventListener('submit', async (e) => {
   ensureDay(viewDate).weight = v;
   $('#w-input').blur();
   renderToday();
-  await saveDay(viewDate);
+  await saveDay(viewDate, ['weight']);
   if (v) toast('Weight saved');
 });
 
 async function addFood(item) {
   ensureDay(viewDate).foods.push(foodItem(item));
   renderToday();
-  await saveDay(viewDate);
+  await saveDay(viewDate, ['foods']);
 }
 
 $('#food-form').addEventListener('submit', async (e) => {
@@ -1279,15 +1522,41 @@ $('#act-form').addEventListener('submit', async (e) => {
   $('#act-mins').blur();
   renderToday();
   toast(`${activityOf(type).label}: ~${fmtInt(kcal)} kcal`);
-  await saveDay(viewDate); // after the toast so a save warning isn't hidden by it
+  await saveDay(viewDate, ['activities']); // after the toast so a save warning isn't hidden by it
 });
 
 $('#act-list').addEventListener('click', async (e) => {
+  const ed = e.target.closest('[data-edit]');
+  if (ed) { editingAct = { date: viewDate, i: +ed.dataset.edit }; renderToday(); return; }
+  if (e.target.closest('[data-cancel]')) { editingAct = null; renderToday(); return; }
   const b = e.target.closest('.x');
   if (!b) return;
-  ensureDay(viewDate).activities.splice(+b.dataset.i, 1);
+  editingAct = null;
+  const date = viewDate, i = +b.dataset.i;
+  const [gone] = ensureDay(date).activities.splice(i, 1);
   renderToday();
-  await saveDay(viewDate);
+  toast(`Removed ${actLabel(gone)}`, async () => {
+    ensureDay(date).activities.splice(i, 0, gone);
+    renderToday();
+    await saveDay(date, ['activities']);
+  });
+  await saveDay(date, ['activities']);
+});
+$('#act-list').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target, acts = ensureDay(viewDate).activities, old = acts[+form.dataset.i];
+  if (!old) return;
+  const type = form.elements.type.value, mins = Math.round(numOrNull(form.elements.mins.value) || 0);
+  if (mins < 1 || mins > 600) return toast('Enter the minutes (1–600)');
+  let kcal = Math.round(numOrNull(form.elements.kcal.value) ?? 0);
+  // Changed the type or time but not the calories: work them out again
+  if (kcal === Math.round(old.kcal) && (type !== old.type || mins !== old.mins)) kcal = burnFor(type, mins, currentWeight(viewDate));
+  const item = { ...old, type, mins, kcal };
+  if (type !== old.type) delete item.name; // a Watch name no longer fits a new type
+  acts[+form.dataset.i] = item;
+  editingAct = null;
+  renderToday();
+  await saveDay(viewDate, ['activities']);
 });
 
 // ---------- photo → calories (Claude via the food-photo Edge Function) ----------
@@ -1391,7 +1660,7 @@ $('#photo-input').addEventListener('change', async (e) => {
   }
 });
 
-for (const panel of [$('#photo-panel'), $('#est-panel')]) {
+for (const panel of [$('#photo-panel'), $('#est-panel'), $('#copy-panel')]) {
   panel.addEventListener('click', async (e) => {
     const act = e.target.closest('[data-act]')?.dataset.act;
     if (act === 'close') { panel.hidden = true; return; }
@@ -1406,25 +1675,44 @@ for (const panel of [$('#photo-panel'), $('#est-panel')]) {
     if (!n) return toast('Tick at least one item');
     panel.hidden = true;
     renderToday();
-    await saveDay(viewDate);
+    await saveDay(viewDate, ['foods']);
     toast(`Added ${n} item${n > 1 ? 's' : ''}`);
   });
 }
 
 $('#food-chips').addEventListener('click', (e) => {
   const b = e.target.closest('.chip');
-  if (b) addFood(recentCache[+b.dataset.i]);
+  if (b) addFood(chipFoods[+b.dataset.i]);
+});
+$('#copy-yday').addEventListener('click', () => {
+  const from = addDays(viewDate, -1);
+  renderReview($('#copy-panel'), {
+    summary: `Food from ${fmtDate(from, { weekday: 'long', day: 'numeric', month: 'short' })}. Untick anything you didn't have.`,
+    items: getDay(from).foods.map((f) => ({ ...f, on: true })),
+  });
 });
 $('#food-list').addEventListener('click', async (e) => {
   const ed = e.target.closest('[data-edit]');
   if (ed) { editingFood = { date: viewDate, i: +ed.dataset.edit }; renderToday(); $('#food-list input[name=name]')?.focus(); return; }
   if (e.target.closest('[data-cancel]')) { editingFood = null; renderToday(); return; }
+  const fav = e.target.closest('[data-fav]');
+  if (fav) {
+    const f = getDay(viewDate).foods[+fav.dataset.fav];
+    if (f) { await toggleFavourite(f); renderToday(); }
+    return;
+  }
   const b = e.target.closest('.x');
   if (!b) return;
   editingFood = null;
-  ensureDay(viewDate).foods.splice(+b.dataset.i, 1);
+  const date = viewDate, i = +b.dataset.i;
+  const [gone] = ensureDay(date).foods.splice(i, 1);
   renderToday();
-  await saveDay(viewDate);
+  toast(`Removed ${gone.name}`, async () => {
+    ensureDay(date).foods.splice(i, 0, gone);
+    renderToday();
+    await saveDay(date, ['foods']);
+  });
+  await saveDay(date, ['foods']);
 });
 $('#food-list').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1441,7 +1729,7 @@ $('#food-list').addEventListener('submit', async (e) => {
   foods[i] = item;
   editingFood = null;
   renderToday();
-  await saveDay(viewDate);
+  await saveDay(viewDate, ['foods']);
 });
 
 for (const [id, key] of [['#steps', 'steps'], ['#active', 'active_cal']]) {
@@ -1449,7 +1737,7 @@ for (const [id, key] of [['#steps', 'steps'], ['#active', 'active_cal']]) {
     const v = numOrNull($(id).value);
     ensureDay(viewDate)[key] = v == null ? null : Math.round(v);
     renderToday();
-    await saveDay(viewDate);
+    await saveDay(viewDate, [key]);
   });
 }
 
@@ -1485,7 +1773,7 @@ $('#setup-form').addEventListener('submit', async (e) => {
   profile = { ...profile, ...next }; // keeps the questionnaire answers and plan
   try { await saveProfile(); } catch (err) { return toast("Couldn't save: " + err.message); }
   // First time: log the starting weight on the start date so the graph begins there
-  if (first && !getDay(next.start_date).weight) { ensureDay(next.start_date).weight = next.start_weight; await saveDay(next.start_date); }
+  if (first && !getDay(next.start_date).weight) { ensureDay(next.start_date).weight = next.start_weight; await saveDay(next.start_date, ['weight']); }
   viewDate = todayStr();
   show(first && CLOUD ? 'quiz' : 'today');
 });
@@ -1515,8 +1803,8 @@ function applyTheme(theme) {
   document.querySelectorAll('#theme-seg button').forEach((b) => b.classList.toggle('on', b.dataset.theme === (theme || 'auto')));
   const metas = document.querySelectorAll('meta[name="theme-color"]');
   metas.forEach((m) => {
-    const forced = theme === 'light' ? '#f5f6f8' : theme === 'dark' ? '#0e1013' : null;
-    m.content = forced || (m.media.includes('dark') ? '#0e1013' : '#f5f6f8');
+    const forced = theme === 'light' ? '#f6f5f9' : theme === 'dark' ? '#0b0b0e' : null;
+    m.content = forced || (m.media.includes('dark') ? '#0b0b0e' : '#f6f5f9');
   });
 }
 let savedTheme = 'auto';
@@ -1538,6 +1826,23 @@ $('#auth-form').addEventListener('submit', async (e) => {
   const { error } = await sb.auth.signInWithPassword({ email: $('#auth-email').value.trim(), password: $('#auth-pass').value });
   $('#auth-msg').textContent = error ? error.message : '';
 });
+$('#auth-forgot').addEventListener('click', async () => {
+  const email = $('#auth-email').value.trim();
+  if (!email) { $('#auth-msg').textContent = 'Type your email above first, then tap "Forgot password?" again.'; return; }
+  $('#auth-msg').textContent = 'Sending…';
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  $('#auth-msg').textContent = error ? error.message : 'Check your email for a link to set a new password.';
+});
+$('#reset-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('#reset-msg').textContent = 'Saving…';
+  const { error } = await sb.auth.updateUser({ password: $('#reset-pass').value });
+  if (error) { $('#reset-msg').textContent = error.message; return; }
+  recovering = false;
+  history.replaceState(null, '', location.pathname);
+  toast('Password updated');
+  boot();
+});
 $('#auth-signup').addEventListener('click', async () => {
   const email = $('#auth-email').value.trim(), password = $('#auth-pass').value;
   if (!email || password.length < 6) { $('#auth-msg').textContent = 'Enter an email and a password of at least 6 characters.'; return; }
@@ -1548,9 +1853,13 @@ $('#auth-signup').addEventListener('click', async () => {
 });
 
 // Refresh when you come back to the app (e.g. after the Shortcut synced from Safari)
+let lastSeenDay = todayStr();
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState !== 'visible' || !profile || (CLOUD && !user)) return;
+  // Back on a new day (app left open overnight): log to today, not yesterday
+  if (todayStr() !== lastSeenDay) { lastSeenDay = todayStr(); viewDate = todayStr(); }
   if (currentView === 'coach') syncChat();
+  if (CLOUD) await flushPending();
   try { ({ days } = await loadAll()); } catch { return; }
   if (viewDate > todayStr()) viewDate = todayStr();
   if (['today', 'progress', 'plan'].includes(currentView) && !document.activeElement?.matches('input, textarea')) rerender();
@@ -1561,6 +1870,8 @@ async function boot() {
   chatLog = null; // chat history is per user
   chatSyncedAt = 0;
   if (CLOUD && !user) { profile = null; days = {}; return show('auth'); }
+  if (recovering) return show('reset');
+  if (CLOUD) await flushPending();
   try { ({ profile, days } = await loadAll()); }
   catch (err) { toast('Could not load data: ' + err.message); return; }
   if (!profile) return show('setup');
@@ -1569,7 +1880,7 @@ async function boot() {
   if (CLOUD && tz && profile.tz !== tz) { profile.tz = tz; saveProfile().catch(() => {}); }
   const synced = !!pendingHealth;
   await applyHealth();
-  viewDate = todayStr();
+  viewDate = lastSeenDay = todayStr();
   const place = synced ? null : savedPlace(); // a Shortcut sync always lands on Today
   show(place ? place.view : 'today');
   if (place && place.view !== 'coach') setTimeout(() => window.scrollTo(0, place.y), 50);
@@ -1583,9 +1894,10 @@ async function init() {
   if (CLOUD) {
     const { data } = await sb.auth.getSession();
     user = data.session?.user || null;
-    sb.auth.onAuthStateChange((_event, session) => {
+    sb.auth.onAuthStateChange((event, session) => {
       const was = user?.id;
       user = session?.user || null;
+      if (event === 'PASSWORD_RECOVERY') { recovering = true; setTimeout(() => show('reset'), 0); return; }
       // Deferred: supabase-js deadlocks if you query inside this callback
       if (user?.id !== was) setTimeout(boot, 0);
     });

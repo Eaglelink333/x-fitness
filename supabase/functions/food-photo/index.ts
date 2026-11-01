@@ -173,7 +173,17 @@ const DAILY_TASK = `Write today's advice card for the Today tab of the app. Use 
   5. Optional: a motivation or wedding milestone (fittings, final weeks).
   icon: one emoji. title: 2-5 words. text: 1-2 specific sentences with numbers. No generic filler.`;
 
-async function dailyAdvice(context: unknown) {
+const WEEKLY_TASK = `Write this week's check-in for the Progress tab. Compare the last 7 days with the 7 before, using last_14_days.
+- headline: one line (max 70 characters) with the verdict on the week.
+- items: 3 to 5, in this order:
+  1. The week in numbers: change in 7-day average weight, average calories vs target and days on target, average move vs the move goal.
+  2. The biggest win this week, specific.
+  3. What held them back, from the data (a day, a habit, logging gaps). Skip if nothing did.
+  4. One focus for next week: a concrete, measurable action.
+  5. Optional: where they are against the wedding date (weeks left, what's achievable).
+  icon: one emoji. title: 2-5 words. text: 1-2 specific sentences with numbers. No generic filler.`;
+
+async function dailyAdvice(context: unknown, task = DAILY_TASK) {
   const data = JSON.stringify(context ?? {});
   if (!context || data.length > 20000) return json({ error: "Missing data." }, 400);
   try {
@@ -187,7 +197,7 @@ async function dailyAdvice(context: unknown) {
         { type: "text", text: COACH_SYSTEM },
         { type: "text", text: `The user's current data from the app:\n${data}` },
       ],
-      messages: [{ role: "user", content: DAILY_TASK }],
+      messages: [{ role: "user", content: task }],
     });
     if (response.stop_reason === "refusal") return json({ error: "No advice today." }, 422);
     const text = response.content.find((b) => b.type === "text");
@@ -252,16 +262,17 @@ async function healthSync(body: Record<string, unknown>) {
   const kg = Number(last?.weight ?? prof.start_weight);
 
   const day = {
-    user_id: prof.user_id, date,
     weight: row?.weight ?? null, steps: row?.steps ?? null, active_cal: row?.active_cal ?? null,
-    foods: row?.foods ?? [], activities: (row?.activities ?? []) as Activity[],
+    activities: (row?.activities ?? []) as Activity[],
   };
+  // Only the fields this sync changes are written, so food logged at the same moment isn't overwritten
+  const patch: Record<string, unknown> = { user_id: prof.user_id, date, updated_at: new Date().toISOString() };
   const saved: string[] = [];
   const steps = num(body.steps), active = num(body.active), exercise = num(body.exercise), weight = num(body.weight, true);
-  if (steps != null) { day.steps = Math.round(steps); saved.push(`${day.steps} steps`); }
-  if (active != null) { day.active_cal = Math.round(active); saved.push(`${day.active_cal} active kcal`); }
+  if (steps != null) { patch.steps = day.steps = Math.round(steps); saved.push(`${day.steps} steps`); }
+  if (active != null) { patch.active_cal = day.active_cal = Math.round(active); saved.push(`${day.active_cal} active kcal`); }
   // Skip scale readings far from your last weight (someone else on the scale)
-  if (weight && day.weight == null && Math.abs(weight - kg) <= 3) { day.weight = Math.round(weight * 10) / 10; saved.push(`${day.weight} kg`); }
+  if (weight && day.weight == null && Math.abs(weight - kg) <= 3) { patch.weight = day.weight = Math.round(weight * 10) / 10; saved.push(`${day.weight} kg`); }
 
   if (body.workouts != null || exercise != null) {
     // Replace earlier Watch syncs for the day; keep anything logged by hand
@@ -275,11 +286,11 @@ async function healthSync(body: Record<string, unknown>) {
     if (!synced.length && mins > 0 && mins <= 600) {
       synced = [{ type: "other", mins, kcal: burn("other", mins, kg), name: "Apple Watch exercise", src: "watch" }];
     }
-    day.activities = day.activities.filter((a) => a.src !== "watch").concat(synced);
+    patch.activities = day.activities = day.activities.filter((a) => a.src !== "watch").concat(synced);
     if (synced.length) saved.push(synced[0].name === "Apple Watch exercise" ? `${mins} exercise min` : `${synced.length} workouts`);
   }
 
-  const { error } = await admin.from("days").upsert({ ...day, updated_at: new Date().toISOString() });
+  const { error } = await admin.from("days").upsert(patch);
   if (error) return json({ error: `Couldn't save: ${error.message}` }, 500);
   return json({ ok: true, date, message: `Synced to X-Fitness: ${saved.join(", ") || "nothing new"}` });
 }
@@ -300,10 +311,16 @@ Deno.serve(async (req) => {
   });
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return json({ error: "Please sign in again." }, 401);
+  // Optional allowlist (Supabase secret ALLOWED_EMAILS, comma separated) so only you can spend the API credit
+  const allowed = (Deno.env.get("ALLOWED_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  if (allowed.length && !allowed.includes((user.email ?? "").toLowerCase())) {
+    return json({ error: "This account isn't set up for the Claude features." }, 403);
+  }
 
   if (body.mode === "plan") return buildPlan(body.answers, body.profile);
   if (body.mode === "chat") return coachReply(body.messages, body.context);
   if (body.mode === "daily") return dailyAdvice(body.context);
+  if (body.mode === "weekly") return dailyAdvice(body.context, WEEKLY_TASK);
 
   // Either a photo (base64) or a typed description of what was eaten
   const { image, mediaType, text } = body;

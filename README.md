@@ -71,6 +71,15 @@ Only signed-in users can use it, so nobody else can spend your API credit.
   Chat history stays on the device you use it on.
 - **Questionnaire:** shown after first setup, or from Plan → Personalise. Claude builds a weekly workout plan, meal ideas and tips.
 
+### 7. Lock it down (recommended)
+- Supabase → **Authentication → Sign In / Providers** → turn off **Allow new users to sign up** once you and Emily have accounts.
+- Supabase → **Edge Functions → Secrets** → add `ALLOWED_EMAILS` with both emails, comma separated.
+  Only those accounts can use the photo logging, Coach, briefings and check-ins, so nobody else can spend your API credit.
+
+### 8. Measurements and progress photos
+Re-run [`schema.sql`](schema.sql). It adds the `measure` and `favorites` columns and a private `progress` storage bucket
+where each person can only see their own photos.
+
 ## Two people, one app
 Each person creates their own account, so data is kept separate. Choosing **Female** in setup switches to:
 - a female workout plan (glutes/legs + dress-ready shoulders, back and arms, plus Pilates/core)
@@ -86,6 +95,11 @@ Each person creates their own account, so data is kept separate. Choosing **Fema
 - **Protein** target: 1.8 g per kg of goal weight.
 
 This is general guidance, not medical advice. ~1 kg/week is the upper end of a sensible rate.
+
+## Offline and syncing
+Changes are saved on the device first and sent to Supabase straight away. If you're offline (e.g. at the gym),
+they wait on the device and sync when you're back online or reopen the app. A save only sends the fields you
+changed, so it never overwrites steps the Health Shortcut synced in the meantime.
 
 ## Local-only mode
 If `config.js` has no Supabase key, the app runs without sign-in and saves to the browser's localStorage. This is handy for testing.
