@@ -699,8 +699,18 @@ function renderAdvice() {
   }
 }
 
+// Only spend on a briefing when a signed-in person is actually looking at the card:
+// the app on screen and the card scrolled into view (not a Shortcut opening the app, say)
+let adviceInView = false;
+new IntersectionObserver((entries) => {
+  adviceInView = entries.some((e) => e.isIntersecting);
+  if (adviceInView) refreshAdvice();
+}, { threshold: 0.2 }).observe($('#advice').closest('.card'));
+document.addEventListener('visibilitychange', () => { if (adviceInView) refreshAdvice(); });
+
 async function refreshAdvice(force = false) {
-  if (!CLOUD || adviceBusy || !profile) return;
+  if (!CLOUD || !user || !profile || adviceBusy) return;
+  if (!force && (!adviceInView || document.visibilityState !== 'visible' || currentView !== 'today')) return;
   const c = adviceCache(), fp = adviceFingerprint(), now = Date.now();
   // New day, or you've logged something and it's been 3+ hours
   const stale = !c || c.date !== todayStr() || (c.fp !== fp && now - c.at > 3 * 3600e3);
