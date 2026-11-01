@@ -2003,7 +2003,21 @@ $('#theme-seg').addEventListener('click', (e) => {
   if (currentView === 'progress') renderProgress(); // chart colours are read from CSS when drawn
 });
 
-$('#signout').addEventListener('click', async () => { if (CLOUD) await sb.auth.signOut(); });
+// Signing out also wipes what this device cached for you (chat, advice, check-ins, unsynced edits),
+// so the next person on a shared computer can't read it
+$('#signout').addEventListener('click', async () => {
+  if (!CLOUD) return;
+  if (Object.keys(pendingRead()).length && !(await flushPending())
+    && !confirm("Some changes haven't synced yet and will be lost if you sign out now. Sign out anyway?")) return;
+  const id = user.id;
+  try {
+    Object.keys(localStorage).filter((k) => k.startsWith('xf-') && k.includes(id)).forEach((k) => localStorage.removeItem(k));
+    localStorage.removeItem(PLACE_KEY);
+    sessionStorage.removeItem('xf-health');
+  } catch {}
+  chatLog = null;
+  await sb.auth.signOut();
+});
 
 $('#auth-form').addEventListener('submit', async (e) => {
   e.preventDefault();
