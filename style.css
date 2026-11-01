@@ -493,3 +493,9 @@ details.tips summary { font-size: 15px; padding: 6px 0; }
 .ask-card .btn { flex: 0 0 auto; }
 .ask-status { margin: 10px 0 0; }
 .remove-recipe { align-self: center; color: var(--muted); }
+/* Foods I don't eat */
+.no-chip { display: inline-flex; align-items: center; gap: 2px; padding: 4px 4px 4px 12px; cursor: default; }
+.no-chip button { font: inherit; font-size: 17px; line-height: 1; color: var(--muted); background: none; border: 0; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; }
+@media (hover: hover) { .no-chip button:hover { color: var(--bad); } }
+.clash { display: block; font-size: 12px; font-weight: 600; color: var(--warn); margin-top: 2px; }
+.clash-card { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 50%, transparent), var(--shadow); }

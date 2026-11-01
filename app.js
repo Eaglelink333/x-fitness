@@ -979,7 +979,10 @@ function recipeByKey(key) {
   const [src, i] = key.split(':');
   return (src === 'c' ? profile.recipes : profile.plan?.meals)?.[+i] || null;
 }
-const recipeRow = (m, key) => `<li><button class="recipe-row" type="button" data-recipe="${key}"><span>${esc(m.name)}<span class="mac">${macroLine(m)}${m.recipe ? ` · ${m.recipe.time_mins} min` : ''}</span></span><span class="chev" aria-hidden="true">›</span></button></li>`;
+const recipeRow = (m, key) => {
+  const bad = clashes(m);
+  return `<li><button class="recipe-row" type="button" data-recipe="${key}"><span>${esc(m.name)}<span class="mac">${macroLine(m)}${m.recipe ? ` · ${m.recipe.time_mins} min` : ''}</span>${bad.length ? `<span class="clash">Contains ${esc(bad.join(', '))}</span>` : ''}</span><span class="chev" aria-hidden="true">›</span></button></li>`;
+};
 
 function renderRecipes() {
   const meals = profile.plan?.meals || [], mine = profile.recipes || [];
@@ -999,6 +1002,16 @@ function renderRecipes() {
       </form>
       ${askBusy ? '<p class="small muted ask-status">✨ Making a lighter version that fits your targets…</p>' : ''}
     </div>` : '';
+  const dl = dislikes();
+  const dislikeCard = CLOUD ? `<div class="card">
+      <div class="title-row"><h2>Foods I don't eat</h2><button class="info" type="button" data-info="n-dislike" aria-expanded="false" aria-label="About this list">i</button></div>
+      <p id="n-dislike" class="info-note" hidden>New recipes, meal ideas and plans never use these, not even in sauces. Recipes you already have that contain one are marked, and you can rewrite them without it.</p>
+      ${dl.length ? `<div class="chips dislikes">${dl.map((d, i) => `<span class="chip no-chip">${esc(d)}<button type="button" data-undislike="${i}" aria-label="Remove ${esc(d)}">×</button></span>`).join('')}</div>` : ''}
+      <form id="dislike-form" class="row gap" style="margin-top:10px">
+        <input name="food" type="text" maxlength="40" placeholder="e.g. mushrooms, coriander" autocomplete="off" enterkeyhint="done" aria-label="Food you don't eat">
+        <button class="btn" type="submit">Add</button>
+      </form>
+    </div>` : '';
   const mineCard = mine.length ? `<div class="card"><h2>Your recipes</h2><ul class="list">${mine.map((m, i) => recipeRow(m, 'c:' + i)).join('')}</ul></div>` : '';
   const planCards = MEAL_TYPES.map(([type, label]) => {
     const list = meals.map((m, i) => ({ m, i })).filter(({ m }) => m.meal === type);
@@ -1008,7 +1021,7 @@ function renderRecipes() {
       <p class="small">Answer the questionnaire and you'll also get meal ideas built for your targets, each with a full recipe.</p>
       ${CLOUD ? '<div class="stack" style="margin-top:12px"><button class="btn" data-act="quiz">Start the questionnaire</button></div>' : ''}</div>` : '';
   $('#recipe-list').innerHTML = `<div class="recipes-head"><h1>Recipes</h1><p class="muted small">Built for your targets. Tap one for the recipe.</p></div>`
-    + ask + mineCard + planCards + noPlan;
+    + ask + dislikeCard + mineCard + planCards + noPlan;
 }
 
 function renderRecipe(m) {
@@ -1030,7 +1043,9 @@ function renderRecipe(m) {
       : `<p class="small">${esc(recipeErr || 'The recipe is ready to write.')}</p><div class="stack" style="margin-top:10px"><button class="btn primary" data-act="write">${recipeErr ? 'Try again' : 'Show the recipe'}</button></div>`}</div>`;
     return;
   }
-  $('#recipe-view').innerHTML = head + `
+  const bad = clashes(m);
+  $('#recipe-view').innerHTML = head + (bad.length ? `<div class="card clash-card"><p class="small">This recipe contains <b>${esc(bad.join(', '))}</b>, which you don't eat.</p>
+      <div class="stack" style="margin-top:10px"><button class="btn primary" type="button" data-act="rewrite">Rewrite it without ${esc(bad.join(', '))}</button></div></div>` : '') + `
     <div class="card"><h2>Ingredients</h2><ul class="list ingredients">${r.ingredients.map((x) => `<li><span>${esc(x.item)}</span><span class="muted">${esc(x.amount)}</span></li>`).join('')}</ul></div>
     <div class="card"><h2>Method</h2><ol class="method">${r.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
       ${r.tip ? `<p class="info-note" style="margin:14px 0 0"><b>Tip:</b> ${esc(r.tip)}</p>` : ''}</div>
@@ -1038,7 +1053,21 @@ function renderRecipe(m) {
     <div class="cook-bar"><button class="btn primary" type="button" data-act="made">I made this · add to today</button></div>`;
 }
 
-const prefs = () => { const a = profile.answers || {}; return { diet: a.diet, cooking: a.cooking, foods: a.foods }; };
+const prefs = () => { const a = profile.answers || {}; return { diet: a.diet, cooking: a.cooking, foods: a.foods, never_include: a.never_include || [] }; };
+
+// ---------- foods you don't eat (kept with the questionnaire answers, so it syncs and reaches every recipe) ----------
+const dislikes = () => profile.answers?.never_include || [];
+// Loose match so "mushroom" also catches "Mushrooms, sliced"
+const stem = (s) => s.toLowerCase().trim().replace(/(es|s)$/, '');
+function clashes(m) {
+  const items = (m.recipe?.ingredients || []).map((x) => x.item.toLowerCase()).concat(m.name.toLowerCase());
+  return dislikes().filter((d) => items.some((it) => it.includes(stem(d))));
+}
+async function setDislikes(list) {
+  profile.answers = { ...profile.answers, never_include: list };
+  renderRecipes();
+  try { await saveProfile(); } catch { toast("Couldn't save. Check your connection."); }
+}
 
 async function writeRecipe(key) {
   const m = recipeByKey(key);
@@ -1050,6 +1079,7 @@ async function writeRecipe(key) {
     const { data, error } = await sb.functions.invoke('food-photo', { body: { mode: 'recipe', meal, answers: prefs() } });
     if (error) throw new Error(await fnError(error));
     if (!data?.steps?.length) throw new Error('No recipe came back. Try again.');
+    if (data.name) m.name = data.name.slice(0, 60); // renamed if a food you don't eat was swapped out
     m.recipe = data; // saved with the plan, so it's there on every device next time
     saveProfile().catch(() => {});
   } catch (err) { recipeErr = err.message || 'Something went wrong. Try again.'; }
@@ -1080,6 +1110,14 @@ async function askRecipe(text, meal) {
 }
 
 $('#view-recipes').addEventListener('submit', (e) => {
+  if (e.target.id === 'dislike-form') {
+    e.preventDefault();
+    const add = e.target.elements.food.value.split(',').map((s) => s.trim()).filter(Boolean);
+    const have = new Set(dislikes().map((d) => d.toLowerCase()));
+    const next = [...dislikes(), ...add.filter((d) => !have.has(d.toLowerCase()))].slice(0, 40);
+    if (next.length !== dislikes().length) setDislikes(next);
+    return;
+  }
   if (e.target.id !== 'recipe-ask') return;
   e.preventDefault();
   const text = e.target.elements.q.value.trim();
@@ -1100,6 +1138,9 @@ $('#view-recipes').addEventListener('click', async (e) => {
   const act = e.target.closest('[data-act]')?.dataset.act;
   if (act === 'back') { openRecipe = null; renderRecipes(); window.scrollTo(0, 0); }
   if (act === 'write') writeRecipe(openRecipe);
+  if (act === 'rewrite') { const m = recipeByKey(openRecipe); if (m) { m.recipe = null; writeRecipe(openRecipe); } }
+  const un = e.target.closest('[data-undislike]');
+  if (un) setDislikes(dislikes().filter((_, i) => i !== +un.dataset.undislike));
   if (act === 'remove' && openRecipe?.startsWith('c:')) {
     const i = +openRecipe.slice(2), [gone] = profile.recipes.splice(i, 1);
     openRecipe = null; renderRecipes(); window.scrollTo(0, 0);
@@ -1170,7 +1211,7 @@ function quizAnswers() {
 
 $('#quiz-skip').addEventListener('click', () => { viewDate = todayStr(); show('today'); });
 $('#quiz-go').addEventListener('click', async () => {
-  const answers = quizAnswers();
+  const answers = { ...quizAnswers(), never_include: profile.answers?.never_include || [] };
   if (!answers.days || !answers.experience) { $('#quiz-msg').textContent = 'Pick your experience and how many days you can train, at least.'; return; }
   const pl = plan(), mt = macroTargets(pl), p = profile;
   const summary = {
