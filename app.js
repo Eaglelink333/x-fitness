@@ -54,16 +54,22 @@ async function loadAll() {
   if (p.data) {
     const { user_id, ...rest } = p.data;
     prof = { ...rest, start_weight: +rest.start_weight, goal_weight: +rest.goal_weight, height_cm: +rest.height_cm, age: +rest.age };
+    if (!prof.plan) { // plan saved on this device while the database lacked the column
+      try { Object.assign(prof, JSON.parse(localStorage.getItem(PLAN_KEY())) || {}); } catch {}
+    }
   }
   return { profile: prof, days: map };
 }
 
+const PLAN_KEY = () => 'xf-plan-' + (user?.id || 'local');
+
 async function saveProfile() {
   if (!CLOUD) return localWrite();
   let { error } = await sb.from('profile').upsert({ user_id: user.id, ...profile });
-  // Database not migrated for the name column yet: save everything else
-  if (error && /name/.test(error.message)) {
-    const { name, ...rest } = profile;
+  // Database not migrated for newer columns yet: keep the plan on this device and save the rest
+  if (error && /name|plan|answers/.test(error.message)) {
+    const { name, plan, answers, ...rest } = profile;
+    try { localStorage.setItem(PLAN_KEY(), JSON.stringify({ plan, answers })); } catch {}
     ({ error } = await sb.from('profile').upsert({ user_id: user.id, ...rest }));
   }
   if (error) throw error;
@@ -249,8 +255,30 @@ const FOOD_RULES_F = [
 ];
 
 const isF = () => profile?.sex === 'f';
-const workouts = () => (isF() ? WORKOUTS_F : WORKOUTS_M);
-const foodRules = () => (isF() ? [...FOOD_RULES, ...FOOD_RULES_F] : FOOD_RULES);
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function workoutIcon(title) {
+  const t = title.toLowerCase();
+  const map = [[/rest|recover/, '🧘'], [/yoga|pilates|stretch|mobility/, '🧘'], [/run|jog/, '🏃'], [/walk|steps/, '🚶'], [/tennis/, '🎾'],
+    [/swim/, '🏊'], [/cycl|bike|spin/, '🚴'], [/hiit|interval|circuit/, '🔥'], [/hike/, '⛰️'], [/dance/, '💃'], [/glute|lower|leg/, '🍑'],
+    [/strength|upper|full|weights|gym|body/, '🏋️']];
+  return (map.find(([re]) => re.test(t)) || [, '💪'])[1];
+}
+// Claude-built week if there is one (indexed Sun..Sat like Date.getDay), else the built-in plan
+function workouts() {
+  const week = profile?.plan?.week;
+  if (week?.length) {
+    const fallback = isF() ? WORKOUTS_F : WORKOUTS_M;
+    return DAY_NAMES.map((d, i) => {
+      const w = week.find((x) => x.day === d);
+      return w ? { d, icon: workoutIcon(w.title), t: `${w.title}: ${w.details}` } : fallback[i];
+    });
+  }
+  return isF() ? WORKOUTS_F : WORKOUTS_M;
+}
+const foodRules = () => [
+  ...(profile?.plan?.tips || []).map((t) => ({ icon: '✨', t })),
+  ...(isF() ? [...FOOD_RULES, ...FOOD_RULES_F] : FOOD_RULES),
+];
 
 function advice() {
   const t = todayStr(), pl = plan(), st = status(), out = [];
@@ -298,12 +326,13 @@ function advice() {
 // ---------- views ----------
 function show(view) {
   currentView = view;
-  for (const v of ['auth', 'setup', 'today', 'progress', 'plan']) $('#view-' + v).hidden = v !== view;
+  for (const v of ['auth', 'setup', 'quiz', 'today', 'progress', 'plan']) $('#view-' + v).hidden = v !== view;
   const main = ['today', 'progress', 'plan'].includes(view);
   $('#tabs').hidden = !main;
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
   renderHeader();
   if (view === 'setup') renderSetup();
+  if (view === 'quiz') renderQuiz();
   if (view === 'today') renderToday();
   if (view === 'progress') renderProgress();
   if (view === 'plan') renderPlan();
@@ -515,13 +544,126 @@ function renderPlan() {
   $('#week-note').textContent = 'Strength: pick a weight you can lift for the listed reps with 1–2 reps left in the tank. Add a little weight each week. '
     + (isF() ? "Lifting won't make you bulky. It keeps your muscle so the weight you lose is fat, which gives a toned, defined look in photos."
              : 'Lifting keeps your muscle, so the weight you lose is fat.');
-  $('#rules').innerHTML = foodRules().map((a) => `<li><span class="i">${a.icon}</span><span>${esc(a.t)}</span></li>`).join('');
+  renderAiPlan();
+  $('#rules').innerHTML = (isF() ? [...FOOD_RULES, ...FOOD_RULES_F] : FOOD_RULES).map((a) => `<li><span class="i">${a.icon}</span><span>${esc(a.t)}</span></li>`).join('');
 
   const base = location.origin + location.pathname;
   $('#shortcut-url').textContent = `${base}?steps=[steps]&active=[active]&weight=[weight]`;
   $('#signout').hidden = !CLOUD;
   $('#mode-note').textContent = CLOUD ? `Signed in as ${user?.email || ''}. Data syncs across devices.` : 'Local mode: data is saved in this browser only. Add your Supabase keys in config.js to sync.';
 }
+
+function renderAiPlan() {
+  const ai = profile.plan;
+  const card = $('#ai-plan');
+  card.hidden = !CLOUD && !ai;
+  if (!ai) {
+    card.innerHTML = `<h2>✨ Personalise your plan</h2>
+      <p class="small">Answer a few quick questions and Claude builds your workouts, meals and tips around you: your schedule, what you enjoy, how you eat and what usually gets in the way.</p>
+      <div class="stack" style="margin-top:12px"><button class="btn primary" data-act="quiz">Start the questionnaire</button></div>`;
+    $('#ai-meals').hidden = true;
+    return;
+  }
+  card.innerHTML = `<h2>✨ Your plan</h2>
+    <p class="plan-summary">${esc(ai.summary)}</p>
+    <ul class="advice">${ai.tips.map((t) => `<li><span class="i">✨</span><span>${esc(t)}</span></li>`).join('')}</ul>
+    <p class="muted small">Built ${ai.created ? fmtDate(ai.created) : ''} from your answers. Your weekly workouts below follow this plan.</p>
+    <div class="stack" style="margin-top:10px"><button class="btn" data-act="quiz">Redo questionnaire</button></div>`;
+
+  $('#ai-meals').hidden = !ai.meals?.length;
+  $('#meal-ideas').innerHTML = ['breakfast', 'lunch', 'dinner', 'snack'].map((type) => {
+    const list = (ai.meals || []).map((m, i) => ({ ...m, i })).filter((m) => m.meal === type);
+    if (!list.length) return '';
+    return `<div class="meal-group"><h3>${type === 'snack' ? 'Snacks' : type}</h3><ul class="list">${list.map((m) =>
+      `<li><span>${esc(m.name)}<span class="mac">${fmtInt(m.kcal)} kcal · P ${Math.round(m.protein_g)} · C ${Math.round(m.carbs_g)} · F ${Math.round(m.fat_g)} g</span></span><button class="add" data-meal="${m.i}" aria-label="Add to today">+</button></li>`).join('')}</ul></div>`;
+  }).join('');
+}
+
+$('#ai-plan').addEventListener('click', (e) => { if (e.target.closest('[data-act="quiz"]')) show('quiz'); });
+$('#meal-ideas').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-meal]');
+  if (!b) return;
+  const m = profile.plan.meals[+b.dataset.meal];
+  const t = todayStr();
+  ensureDay(t).foods.push(foodItem({ name: m.name, kcal: m.kcal, protein: m.protein_g, carbs: m.carbs_g, fat: m.fat_g }));
+  toast(`Added ${m.name} to today`);
+  await saveDay(t);
+});
+
+// ---------- questionnaire ----------
+function quizQuestions() {
+  const outfit = isF() ? 'dress' : 'suit';
+  return [
+    { id: 'focus', q: 'What matters most to you?', multi: true, opts: ['Lose weight', 'Tone up', `Arms & shoulders (for the ${outfit})`, 'Glutes & legs', 'Flatter stomach', 'More energy', 'Feel confident in photos'] },
+    { id: 'experience', q: 'How experienced are you with exercise?', opts: ['Beginner', 'Some experience', 'Very experienced'] },
+    { id: 'days', q: 'How many days a week can you train?', opts: ['2', '3', '4', '5', '6'] },
+    { id: 'minutes', q: 'How long can each session be?', opts: ['20 min', '30 min', '45 min', '60 min+'] },
+    { id: 'where', q: 'Where will you train?', multi: true, opts: ['Gym', 'Home (some equipment)', 'Home (no equipment)', 'Outdoors', 'Classes / studio'] },
+    { id: 'enjoy', q: 'What do you enjoy (or want to try)?', multi: true, opts: ['Walking', 'Running', 'Weights', 'Pilates', 'Yoga', 'Tennis', 'Dance', 'Swimming', 'Cycling', 'HIIT / classes', 'Hiking'] },
+    { id: 'avoid', q: 'Any injuries or things to avoid?', text: true, ph: 'e.g. sore knees, no jumping' },
+    { id: 'diet', q: 'How do you eat?', multi: true, opts: ['No restrictions', 'Vegetarian', 'Vegan', 'Pescatarian', 'Gluten-free', 'Dairy-free', 'Halal'] },
+    { id: 'cooking', q: 'How much do you like to cook?', opts: ['Love cooking', 'Simple meals', 'As little as possible'] },
+    { id: 'challenges', q: 'What usually gets in the way?', multi: true, opts: ['Snacking / sweet tooth', 'Alcohol & social events', 'Eating out / takeaway', 'Late-night eating', 'Busy, no time', 'Stress eating', 'Skipping meals then overeating', 'Motivation'] },
+    { id: 'foods', q: 'Foods you love or can\'t stand?', text: true, ph: 'e.g. love Mexican and sushi, hate mushrooms' },
+    { id: 'notes', q: 'Anything else Claude should know?', text: true, ph: 'e.g. shift work, final fitting on 20 Dec' },
+  ];
+}
+
+function renderQuiz() {
+  const a = profile?.answers || {};
+  $('#quiz-msg').textContent = '';
+  $('#quiz-go').disabled = false;
+  $('#quiz').innerHTML = quizQuestions().map((q) => {
+    if (q.text) return `<div><div class="q-title">${esc(q.q)} <span class="muted small">(optional)</span></div><textarea data-q="${q.id}" maxlength="300" placeholder="${esc(q.ph)}">${esc(a[q.id] || '')}</textarea></div>`;
+    const picked = [].concat(a[q.id] || []);
+    return `<div><div class="q-title">${esc(q.q)}</div><div class="chips" data-q="${q.id}" ${q.multi ? 'data-multi' : ''}>${q.opts.map((o) =>
+      `<button type="button" class="chip${picked.includes(o) ? ' on' : ''}" data-v="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>`;
+  }).join('');
+}
+
+$('#quiz').addEventListener('click', (e) => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  const group = chip.parentElement;
+  if (!group.hasAttribute('data-multi')) group.querySelectorAll('.chip').forEach((c) => c !== chip && c.classList.remove('on'));
+  chip.classList.toggle('on');
+});
+
+function quizAnswers() {
+  const out = {};
+  for (const q of quizQuestions()) {
+    if (q.text) { out[q.id] = $(`#quiz textarea[data-q="${q.id}"]`).value.trim(); continue; }
+    const on = [...document.querySelectorAll(`#quiz [data-q="${q.id}"] .chip.on`)].map((c) => c.dataset.v);
+    out[q.id] = q.multi ? on : on[0] || '';
+  }
+  return out;
+}
+
+$('#quiz-skip').addEventListener('click', () => { viewDate = todayStr(); show('today'); });
+$('#quiz-go').addEventListener('click', async () => {
+  const answers = quizAnswers();
+  if (!answers.days || !answers.experience) { $('#quiz-msg').textContent = 'Pick your experience and how many days you can train, at least.'; return; }
+  const pl = plan(), mt = macroTargets(pl), p = profile;
+  const summary = {
+    name: p.name || null, sex: p.sex === 'f' ? 'female' : 'male', age: p.age, height_cm: p.height_cm,
+    current_weight_kg: +fmt1(pl.w), goal_weight_kg: p.goal_weight, goal_date: p.goal_date, days_left: pl.left,
+    daily_targets: { kcal: pl.kcal, protein_g: pl.protein, carbs_g: mt.carbs, fat_g: mt.fat, steps: pl.stepGoal },
+  };
+  $('#quiz-go').disabled = true;
+  $('#quiz-msg').textContent = '✨ Claude is building your plan. This takes about 30–60 seconds…';
+  try {
+    const { data, error } = await sb.functions.invoke('food-photo', { body: { mode: 'plan', answers, profile: summary } });
+    if (error) throw new Error(await fnError(error));
+    if (!data?.week?.length) throw new Error('No plan came back. Try again.');
+    profile = { ...profile, answers, plan: { ...data, created: todayStr() } };
+    await saveProfile();
+    toast('Your plan is ready');
+    show('plan');
+  } catch (err) {
+    $('#quiz-go').disabled = false;
+    $('#quiz-msg').textContent = err.message || 'Something went wrong. Try again.';
+  }
+});
 
 // ---------- Apple Health (via iOS Shortcut URL params) ----------
 function readHealthParams() {
@@ -825,12 +967,12 @@ $('#setup-form').addEventListener('submit', async (e) => {
   if (next.goal_weight >= next.start_weight) return toast('Goal weight should be below your starting weight');
   if (next.goal_date <= next.start_date) return toast('Goal date must be after the start date');
   const first = !profile;
-  profile = next;
+  profile = { ...profile, ...next }; // keeps the questionnaire answers and plan
   try { await saveProfile(); } catch (err) { return toast("Couldn't save: " + err.message); }
   // First time: log the starting weight on the start date so the graph begins there
   if (first && !getDay(next.start_date).weight) { ensureDay(next.start_date).weight = next.start_weight; await saveDay(next.start_date); }
   viewDate = todayStr();
-  show('today');
+  show(first && CLOUD ? 'quiz' : 'today');
 });
 $('#setup-cancel').addEventListener('click', () => show('plan'));
 $('#edit-goal').addEventListener('click', () => show('setup'));

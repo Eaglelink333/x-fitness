@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>X-Fitness</title>
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 <script>
   // Apply the saved theme before first paint so there's no flash
   try { const t = localStorage.getItem('xf-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
@@ -58,6 +58,20 @@
         <button type="submit" class="btn primary span2">Save goal</button>
         <button type="button" class="btn span2" id="setup-cancel" hidden>Cancel</button>
       </form>
+    </div>
+  </section>
+
+  <!-- Questionnaire → Claude-built plan -->
+  <section id="view-quiz" class="view" hidden>
+    <div class="card">
+      <h1>Build your plan</h1>
+      <p class="muted">Answer a few quick questions and Claude will build your workouts and meals around you. Tap all that apply.</p>
+      <div id="quiz" class="quiz"></div>
+      <div class="stack">
+        <button class="btn primary" id="quiz-go" type="button">✨ Build my plan</button>
+        <button class="btn" id="quiz-skip" type="button">Skip for now</button>
+      </div>
+      <p id="quiz-msg" class="small"></p>
     </div>
   </section>
 
@@ -172,6 +186,12 @@
 
   <!-- Plan -->
   <section id="view-plan" class="view" hidden>
+    <div class="card" id="ai-plan"></div>
+    <div class="card" id="ai-meals" hidden>
+      <h2>Meal ideas</h2>
+      <p class="muted small">Built for your targets. Tap + to add one to today.</p>
+      <div id="meal-ideas"></div>
+    </div>
     <div class="card">
       <h2>Your daily targets</h2>
       <div id="targets" class="stats"></div>
@@ -232,7 +252,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=9"></script>
-<script src="app.js?v=9"></script>
+<script src="config.js?v=10"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
