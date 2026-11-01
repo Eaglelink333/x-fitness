@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>X-Fitness</title>
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="style.css?v=14">
 <script>
   // Apply the saved theme before first paint so there's no flash
   try { const t = localStorage.getItem('xf-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
@@ -234,6 +234,7 @@
           <li>Add <b>Set Variable</b> and name it <code>steps</code>.</li>
           <li>Repeat steps 2–4 with Type: <b>Active Energy</b>, and name the variable <code>active</code>.</li>
           <li><i>(Optional, if you use a smart scale)</i> Add <b>Find Health Samples</b> with Type: <b>Weight</b>, Sort by <b>Start Date</b>, <b>Latest First</b>, Limit <b>1</b>. Then add <b>Set Variable</b> and name it <code>weight</code>.</li>
+          <li><i>(Optional, Apple Watch workouts)</i> Add <b>Find Health Samples</b> with Type: <b>Workouts</b>, Start Date: <b>is today</b>. Add <b>Repeat with Each</b>, and inside it a <b>Text</b> action: <code>[Name]~[Duration]~[Total Energy]</code>. Pick each one by tapping <i>Repeat Item</i> and choosing that detail; leave out the energy part if it isn't offered and the app estimates it. After <b>End Repeat</b>, add <b>Combine Text</b> (separator: New Lines), then <b>URL Encode</b>, then <b>Set Variable</b> named <code>workouts</code>.<br><span class="muted">If your iPhone doesn't offer Workouts as a type, skip this and log workouts in the app.</span></li>
           <li>Add <b>URL</b> with this text, inserting your variables where shown:<br><code id="shortcut-url" class="url"></code></li>
           <li>Add <b>Open URLs</b>. Tap ▶ to test it. Safari will open and show "Synced from Apple Health".</li>
           <li>Automate it: in Shortcuts go to <b>Automation</b> → <b>+</b> → <b>Time of Day</b> (e.g. 8:00 pm, daily) → <b>Run Immediately</b> → choose <b>Sync X-Fitness</b>.</li>
@@ -270,7 +271,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=13"></script>
-<script src="app.js?v=13"></script>
+<script src="config.js?v=14"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

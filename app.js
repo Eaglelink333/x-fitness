@@ -114,8 +114,10 @@ const ACTIVITIES = [
   { key: 'hike', label: 'Hiking', icon: '⛰️', met: 6.0 },
   { key: 'dance', label: 'Dancing', icon: '💃', met: 5.0 },
   { key: 'yoga', label: 'Yoga / Pilates', icon: '🧘', met: 3.0 },
+  { key: 'other', label: 'Other workout', icon: '💪', met: 5.0 },
 ];
 const activityOf = (key) => ACTIVITIES.find((a) => a.key === key) || ACTIVITIES[0];
+const actLabel = (a) => a.name || activityOf(a.type).label; // Watch workouts keep Apple's name
 const burnFor = (key, mins, kg) => Math.round(((activityOf(key).met - 1) * kg * mins) / 60 / 5) * 5;
 const burnOf = (date) => getDay(date).activities.reduce((s, a) => s + (+a.kcal || 0), 0);
 
@@ -417,7 +419,7 @@ function renderToday() {
   const burnt = burnOf(viewDate);
   $('#act-total').textContent = burnt ? `~${fmtInt(burnt)} kcal burnt` : '';
   $('#act-list').innerHTML = d.activities.map((a, i) =>
-    `<li><span>${activityOf(a.type).icon} ${esc(activityOf(a.type).label)} <span class="muted">· ${a.mins} min</span></span><span class="row gap"><span class="muted">~${fmtInt(a.kcal)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></span></li>`).join('');
+    `<li><span>${activityOf(a.type).icon} ${esc(actLabel(a))} <span class="muted">· ${a.mins} min${a.src === 'watch' ? ' · ⌚ Watch' : ''}</span></span><span class="row gap"><span class="muted">~${fmtInt(a.kcal)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></span></li>`).join('');
   updateActPreview();
 
   renderAdvice();
@@ -550,7 +552,7 @@ function renderPlan() {
   $('#rules').innerHTML = (isF() ? [...FOOD_RULES, ...FOOD_RULES_F] : FOOD_RULES).map((a) => `<li><span class="i">${a.icon}</span><span>${esc(a.t)}</span></li>`).join('');
 
   const base = location.origin + location.pathname;
-  $('#shortcut-url').textContent = `${base}?steps=[steps]&active=[active]&weight=[weight]`;
+  $('#shortcut-url').textContent = `${base}?steps=[steps]&active=[active]&weight=[weight]&workouts=[workouts]`;
   $('#signout').hidden = !CLOUD;
   $('#mode-note').textContent = CLOUD ? `Signed in as ${user?.email || ''}. Data syncs across devices.` : 'Local mode: data is saved in this browser only. Add your Supabase keys in config.js to sync.';
 }
@@ -787,7 +789,7 @@ function coachContext() {
       date: d, weekday: DAY_NAMES[parseYmd(d).getDay()], weight_kg: x.weight, kcal: kcalOf(d) || null,
       protein_g: Math.round(m.protein) || null, carbs_g: Math.round(m.carbs) || null, fat_g: Math.round(m.fat) || null,
       foods_logged: x.foods.length, foods_without_macros: m.missing, steps: x.steps, active_kcal: x.active_cal,
-      workouts: x.activities.map((a) => `${activityOf(a.type).label} ${a.mins} min (~${a.kcal} kcal)`),
+      workouts: x.activities.map((a) => `${actLabel(a)} ${a.mins} min (~${a.kcal} kcal${a.src === 'watch' ? ', Apple Watch' : ''})`),
     });
   }
   const today = getDay(t);
@@ -879,7 +881,7 @@ $('#chat-clear').addEventListener('click', () => { chatLog = []; saveChat(); ren
 // ---------- Apple Health (via iOS Shortcut URL params) ----------
 function readHealthParams() {
   const q = new URLSearchParams(location.search);
-  if (!['steps', 'active', 'weight'].some((k) => q.has(k))) return null;
+  if (!['steps', 'active', 'weight', 'workouts'].some((k) => q.has(k))) return null;
   const parse = (v, decimal) => {
     if (v == null || v === '') return null;
     const s = decimal ? String(v).replace(',', '.') : String(v).replace(/,/g, '');
@@ -888,7 +890,38 @@ function readHealthParams() {
   };
   const date = /^\d{4}-\d{2}-\d{2}$/.test(q.get('date') || '') ? q.get('date') : todayStr();
   history.replaceState(null, '', location.pathname);
-  return { date, steps: parse(q.get('steps')), active: parse(q.get('active')), weight: parse(q.get('weight'), true) };
+  return { date, steps: parse(q.get('steps')), active: parse(q.get('active')), weight: parse(q.get('weight'), true), workouts: q.get('workouts') };
+}
+
+// Apple workout names → our activity types (for icons and estimates)
+const WATCH_TYPES = [
+  [/walk/, 'walk'], [/run|jog/, 'run'], [/tennis|squash|badminton|pickleball|padel/, 'tennis'],
+  [/hiit|interval|kickbox|boxing|bootcamp/, 'hiit'], [/strength|weight|core|functional|cross ?training/, 'gym'],
+  [/cycl|bik|spin/, 'cycle'], [/swim/, 'swim'], [/hik/, 'hike'], [/danc|barre/, 'dance'],
+  [/yoga|pilates|flexib|mind|cooldown|stretch/, 'yoga'],
+];
+
+// "1:02:15", "45:10", "1 hr 2 min", "45 min", "2700" (seconds) or "45" (minutes) → minutes
+function parseMinutes(raw) {
+  const s = String(raw || '').trim().toLowerCase().replace(',', '.');
+  let m;
+  if ((m = s.match(/^(\d+):(\d{1,2}):(\d{1,2})$/))) return +m[1] * 60 + +m[2] + +m[3] / 60;
+  if ((m = s.match(/^(\d+):(\d{1,2})$/))) return +m[1] + +m[2] / 60;
+  const part = (re) => { const x = s.match(re); return x ? parseFloat(x[1]) : 0; };
+  const h = part(/([\d.]+)\s*h/), mi = part(/([\d.]+)\s*m(?!s)/), sec = part(/([\d.]+)\s*s/);
+  if (h || mi || sec) return h * 60 + mi + sec / 60;
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n > 300 ? n / 60 : n;
+}
+
+// Shortcut sends one workout per line (or "|"): Name~Duration~Calories (calories optional)
+function parseWorkouts(raw, kg) {
+  return String(raw || '').split(/\n|\|/).map((line) => line.split('~').map((x) => x.trim())).filter(([name]) => name).map(([name, dur, cal]) => {
+    const mins = Math.round(parseMinutes(dur));
+    const type = (WATCH_TYPES.find(([re]) => re.test(name.toLowerCase())) || [, 'other'])[1];
+    const kcal = Math.round(parseFloat(String(cal || '').replace(/,/g, ''))) || burnFor(type, mins, kg);
+    return { type, mins, kcal, name: name.slice(0, 40), src: 'watch' };
+  }).filter((a) => a.mins > 0 && a.mins <= 600);
 }
 
 async function applyHealth() {
@@ -901,6 +934,12 @@ async function applyHealth() {
   if (h.active != null) { d.active_cal = Math.round(h.active); bits.push(`${fmtInt(d.active_cal)} active kcal`); }
   // Skip readings far from your recent average (e.g. someone else used the scale)
   if (h.weight && Math.abs(h.weight - currentWeight(h.date)) <= 3 && !d.weight) { d.weight = Math.round(h.weight * 10) / 10; bits.push(`${fmt1(d.weight)} kg`); }
+  if (h.workouts != null) {
+    // Replace earlier Watch syncs for the day (the Shortcut may run several times); keep manual entries
+    const synced = parseWorkouts(h.workouts, currentWeight(h.date));
+    d.activities = d.activities.filter((a) => a.src !== 'watch').concat(synced);
+    if (synced.length) bits.push(`${synced.length} workout${synced.length > 1 ? 's' : ''}`);
+  }
   await saveDay(h.date);
   if (bits.length) toast('Synced from Apple Health: ' + bits.join(', '));
 }
@@ -1194,7 +1233,7 @@ $('#export').addEventListener('click', () => {
     const x = days[d];
     const mm = macroTotals(d);
     rows.push([d, x.weight ?? '', kcalOf(d) || '', mm.protein || '', mm.carbs || '', mm.fat || '', x.steps ?? '', x.active_cal ?? '', burnOf(d) || '',
-      (x.activities || []).map((a) => `${activityOf(a.type).label} ${a.mins} min`).join('; '), x.foods.map((f) => `${f.name} (${f.kcal})`).join('; ')]);
+      (x.activities || []).map((a) => `${actLabel(a)} ${a.mins} min`).join('; '), x.foods.map((f) => `${f.name} (${f.kcal})`).join('; ')]);
   }
   const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
   const a = document.createElement('a');
