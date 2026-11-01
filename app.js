@@ -71,9 +71,9 @@ async function saveProfile() {
   if (!CLOUD) return localWrite();
   let { error } = await sb.from('profile').upsert({ user_id: user.id, ...profile });
   // Database not migrated for newer columns yet: keep the plan on this device and save the rest
-  if (error && /name|plan|answers|sync_token|tz|favorites/.test(error.message)) {
-    const { name, plan, answers, sync_token, tz, favorites, ...rest } = profile;
-    try { localStorage.setItem(PLAN_KEY(), JSON.stringify({ plan, answers, favorites })); } catch {}
+  if (error && /name|plan|answers|sync_token|tz|favorites|recipes/.test(error.message)) {
+    const { name, plan, answers, sync_token, tz, favorites, recipes, ...rest } = profile;
+    try { localStorage.setItem(PLAN_KEY(), JSON.stringify({ plan, answers, favorites, recipes })); } catch {}
     ({ error } = await sb.from('profile').upsert({ user_id: user.id, ...rest }));
   }
   if (error) throw error;
@@ -969,37 +969,53 @@ function renderAiPlan() {
 }
 
 $('#ai-plan').addEventListener('click', (e) => { if (e.target.closest('[data-act="quiz"]')) show('quiz'); });
-// ---------- recipes: meal ideas from the plan; the full recipe is written on first open and saved to the plan ----------
+// ---------- recipes: plan meal ideas plus your own requests ("a healthy burger", "mince + zucchini") ----------
+// Keys: 'p:<i>' = plan meal idea (recipe written on first open, saved to the plan), 'c:<i>' = one you asked for (saved to profile.recipes)
 const MEAL_TYPES = [['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['dinner', 'Dinner'], ['snack', 'Snacks']];
-let openRecipe = null, recipeBusy = false, recipeErr = '';
+let openRecipe = null, recipeBusy = false, recipeErr = '', askBusy = false;
 const macroLine = (m) => `${fmtInt(m.kcal)} kcal · P ${Math.round(m.protein_g)} · C ${Math.round(m.carbs_g)} · F ${Math.round(m.fat_g)} g`;
+function recipeByKey(key) {
+  if (!key) return null;
+  const [src, i] = key.split(':');
+  return (src === 'c' ? profile.recipes : profile.plan?.meals)?.[+i] || null;
+}
+const recipeRow = (m, key) => `<li><button class="recipe-row" type="button" data-recipe="${key}"><span>${esc(m.name)}<span class="mac">${macroLine(m)}${m.recipe ? ` · ${m.recipe.time_mins} min` : ''}</span></span><span class="chev" aria-hidden="true">›</span></button></li>`;
 
 function renderRecipes() {
-  const meals = profile.plan?.meals || [];
-  const showList = openRecipe == null || !meals[openRecipe];
-  $('#recipe-list').hidden = !showList;
-  $('#recipe-view').hidden = showList;
-  if (!showList) return renderRecipe(meals[openRecipe]);
-  if (!meals.length) {
-    $('#recipe-list').innerHTML = `<div class="card"><h2>Recipes</h2>
-      <p class="small">Answer the questionnaire and you'll get meal ideas built for your targets, each with a full recipe.</p>
-      ${CLOUD ? '<div class="stack" style="margin-top:12px"><button class="btn primary" data-act="quiz">Start the questionnaire</button></div>' : ''}</div>`;
-    return;
-  }
-  $('#recipe-list').innerHTML = `<div class="recipes-head"><h1>Recipes</h1><p class="muted small">Ideas built for your targets. Tap one for the recipe.</p></div>`
-    + MEAL_TYPES.map(([type, label]) => {
-      const list = meals.map((m, i) => ({ ...m, i })).filter((m) => m.meal === type);
-      if (!list.length) return '';
-      return `<div class="card"><h2>${label}</h2><ul class="list">${list.map((m) =>
-        `<li><button class="recipe-row" type="button" data-recipe="${m.i}"><span>${esc(m.name)}<span class="mac">${macroLine(m)}${m.recipe ? ` · ${m.recipe.time_mins} min` : ''}</span></span><span class="chev" aria-hidden="true">›</span></button></li>`).join('')}</ul></div>`;
-    }).join('');
+  const meals = profile.plan?.meals || [], mine = profile.recipes || [];
+  const current = recipeByKey(openRecipe);
+  $('#recipe-list').hidden = !!current;
+  $('#recipe-view').hidden = !current;
+  if (current) return renderRecipe(current);
+  openRecipe = null;
+  const ask = CLOUD ? `<div class="card ask-card">
+      <h2>What do you feel like?</h2>
+      <form id="recipe-ask" class="stack">
+        <textarea name="q" rows="3" maxlength="300" required placeholder="e.g. a healthy hamburger, or something with mince, zucchini and capsicum">${esc(askDraft)}</textarea>
+        <div class="row gap">
+          <select name="meal" aria-label="Which meal"><option value="">Any meal</option>${MEAL_TYPES.map(([k, l]) => `<option value="${k}">${l === 'Snacks' ? 'Snack' : l}</option>`).join('')}</select>
+          <button class="btn primary" type="submit" ${askBusy ? 'disabled' : ''}>${askBusy ? 'Creating…' : 'Create recipe'}</button>
+        </div>
+      </form>
+      ${askBusy ? '<p class="small muted ask-status">✨ Making a lighter version that fits your targets…</p>' : ''}
+    </div>` : '';
+  const mineCard = mine.length ? `<div class="card"><h2>Your recipes</h2><ul class="list">${mine.map((m, i) => recipeRow(m, 'c:' + i)).join('')}</ul></div>` : '';
+  const planCards = MEAL_TYPES.map(([type, label]) => {
+    const list = meals.map((m, i) => ({ m, i })).filter(({ m }) => m.meal === type);
+    return list.length ? `<div class="card"><h2>${label}</h2><ul class="list">${list.map(({ m, i }) => recipeRow(m, 'p:' + i)).join('')}</ul></div>` : '';
+  }).join('');
+  const noPlan = !meals.length ? `<div class="card"><h2>Meal ideas</h2>
+      <p class="small">Answer the questionnaire and you'll also get meal ideas built for your targets, each with a full recipe.</p>
+      ${CLOUD ? '<div class="stack" style="margin-top:12px"><button class="btn" data-act="quiz">Start the questionnaire</button></div>' : ''}</div>` : '';
+  $('#recipe-list').innerHTML = `<div class="recipes-head"><h1>Recipes</h1><p class="muted small">Built for your targets. Tap one for the recipe.</p></div>`
+    + ask + mineCard + planCards + noPlan;
 }
 
 function renderRecipe(m) {
-  const r = m.recipe;
+  const r = m.recipe, custom = openRecipe.startsWith('c:');
   const head = `<button class="text-btn back" type="button" data-act="back">‹ All recipes</button>
     <div class="card recipe-hero">
-      <div class="muted small cap">${esc(MEAL_TYPES.find(([k]) => k === m.meal)?.[1] || '')}</div>
+      <div class="muted small cap">${esc(MEAL_TYPES.find(([k]) => k === m.meal)?.[1] || '')}${custom ? ' · your request' : ''}</div>
       <h1>${esc(m.name)}</h1>
       ${r ? `<p class="small">${esc(r.intro)}</p>` : ''}
       <div class="recipe-stats">
@@ -1018,18 +1034,20 @@ function renderRecipe(m) {
     <div class="card"><h2>Ingredients</h2><ul class="list ingredients">${r.ingredients.map((x) => `<li><span>${esc(x.item)}</span><span class="muted">${esc(x.amount)}</span></li>`).join('')}</ul></div>
     <div class="card"><h2>Method</h2><ol class="method">${r.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
       ${r.tip ? `<p class="info-note" style="margin:14px 0 0"><b>Tip:</b> ${esc(r.tip)}</p>` : ''}</div>
+    ${custom ? '<button class="text-btn remove-recipe" type="button" data-act="remove">Remove this recipe</button>' : ''}
     <div class="cook-bar"><button class="btn primary" type="button" data-act="made">I made this · add to today</button></div>`;
 }
 
-async function writeRecipe(i) {
-  const m = profile.plan.meals[i];
+const prefs = () => { const a = profile.answers || {}; return { diet: a.diet, cooking: a.cooking, foods: a.foods }; };
+
+async function writeRecipe(key) {
+  const m = recipeByKey(key);
   if (!m || m.recipe || recipeBusy || !CLOUD) return;
   recipeBusy = true; recipeErr = '';
   if (currentView === 'recipes') renderRecipes();
   try {
-    const a = profile.answers || {};
     const meal = { name: m.name, meal: m.meal, kcal: m.kcal, protein_g: m.protein_g, carbs_g: m.carbs_g, fat_g: m.fat_g };
-    const { data, error } = await sb.functions.invoke('food-photo', { body: { mode: 'recipe', meal, answers: { diet: a.diet, cooking: a.cooking, foods: a.foods } } });
+    const { data, error } = await sb.functions.invoke('food-photo', { body: { mode: 'recipe', meal, answers: prefs() } });
     if (error) throw new Error(await fnError(error));
     if (!data?.steps?.length) throw new Error('No recipe came back. Try again.');
     m.recipe = data; // saved with the plan, so it's there on every device next time
@@ -1039,11 +1057,42 @@ async function writeRecipe(i) {
   if (currentView === 'recipes') renderRecipes();
 }
 
+// "I want to make a hamburger": a lighter version sized to your targets, saved under Your recipes
+let askDraft = '';
+async function askRecipe(text, meal) {
+  if (askBusy || !CLOUD) return;
+  askBusy = true; askDraft = text;
+  renderRecipes();
+  try {
+    const pl = plan();
+    const targets = { daily_kcal: pl.kcal, daily_protein_g: pl.protein, kcal_left_today: Math.max(0, pl.kcal - kcalOf(todayStr())) };
+    const { data, error } = await sb.functions.invoke('food-photo', { body: { mode: 'custom_recipe', request: text, meal, targets, answers: prefs() } });
+    if (error) throw new Error(await fnError(error));
+    if (!data?.recipe?.steps?.length) throw new Error('No recipe came back. Try rewording it.');
+    profile.recipes = [data, ...(profile.recipes || [])].slice(0, 30);
+    askDraft = '';
+    openRecipe = 'c:0';
+    window.scrollTo(0, 0);
+    try { await saveProfile(); } catch { toast("Couldn't save the recipe. Check your connection."); }
+  } catch (err) { toast(err.message || 'Something went wrong. Try again.'); }
+  askBusy = false;
+  if (currentView === 'recipes') renderRecipes();
+}
+
+$('#view-recipes').addEventListener('submit', (e) => {
+  if (e.target.id !== 'recipe-ask') return;
+  e.preventDefault();
+  const text = e.target.elements.q.value.trim();
+  if (text.length < 3) return toast('Tell us what you feel like, e.g. "a healthy burger"');
+  askRecipe(text, e.target.elements.meal.value);
+});
+$('#view-recipes').addEventListener('input', (e) => { if (e.target.name === 'q') askDraft = e.target.value; });
+
 $('#view-recipes').addEventListener('click', async (e) => {
   if (e.target.closest('[data-act="quiz"]')) return show('quiz');
   const row = e.target.closest('[data-recipe]');
   if (row) {
-    openRecipe = +row.dataset.recipe; recipeErr = '';
+    openRecipe = row.dataset.recipe; recipeErr = '';
     renderRecipes(); window.scrollTo(0, 0);
     writeRecipe(openRecipe);
     return;
@@ -1051,8 +1100,19 @@ $('#view-recipes').addEventListener('click', async (e) => {
   const act = e.target.closest('[data-act]')?.dataset.act;
   if (act === 'back') { openRecipe = null; renderRecipes(); window.scrollTo(0, 0); }
   if (act === 'write') writeRecipe(openRecipe);
+  if (act === 'remove' && openRecipe?.startsWith('c:')) {
+    const i = +openRecipe.slice(2), [gone] = profile.recipes.splice(i, 1);
+    openRecipe = null; renderRecipes(); window.scrollTo(0, 0);
+    toast(`Removed ${gone.name}`, async () => {
+      profile.recipes.splice(i, 0, gone);
+      renderRecipes();
+      await saveProfile().catch(() => {});
+    });
+    await saveProfile().catch(() => toast("Couldn't save. Check your connection."));
+  }
   if (act === 'made') {
-    const m = profile.plan.meals[openRecipe], t = todayStr();
+    const m = recipeByKey(openRecipe), t = todayStr();
+    if (!m) return;
     ensureDay(t).foods.push(foodItem({ name: m.name, kcal: m.kcal, protein: m.protein_g, carbs: m.carbs_g, fat: m.fat_g }));
     toast(`Added ${m.name} to today`);
     await saveDay(t, ['foods']);

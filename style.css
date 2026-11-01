@@ -483,3 +483,13 @@ details.tips summary { font-size: 15px; padding: 6px 0; }
 .tabs button { max-width: 150px; }
 #recipe-list, #recipe-view { display: flex; flex-direction: column; gap: 14px; }
 #recipe-list[hidden], #recipe-view[hidden] { display: none; }
+/* "What do you feel like?" */
+.ask-card textarea {
+  font: inherit; font-size: 16px; color: var(--text); background: var(--soft); width: 100%; min-height: 84px;
+  border: 1px solid transparent; border-radius: var(--radius-sm); padding: 10px 12px; resize: vertical;
+}
+.ask-card textarea:focus { outline: none; border-color: var(--accent); background: var(--card); }
+.ask-card select { flex: 1; }
+.ask-card .btn { flex: 0 0 auto; }
+.ask-status { margin: 10px 0 0; }
+.remove-recipe { align-self: center; color: var(--muted); }

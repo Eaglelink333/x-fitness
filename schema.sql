@@ -32,6 +32,7 @@ alter table public.profile add column if not exists plan jsonb;
 alter table public.profile add column if not exists sync_token text unique;
 alter table public.profile add column if not exists tz text;
 alter table public.profile add column if not exists favorites jsonb;
+alter table public.profile add column if not exists recipes jsonb;
 alter table public.days add column if not exists activities jsonb not null default '[]';
 alter table public.days add column if not exists measure jsonb;
 
