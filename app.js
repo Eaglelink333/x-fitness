@@ -377,6 +377,8 @@ function renderToday() {
   $('#macro-note').textContent = mm.missing ? `${mm.missing} item${mm.missing > 1 ? 's' : ''} without macros` : '';
 
   $('#photo-card').hidden = !CLOUD; // needs the Supabase Edge Function
+  $('#food-hint').hidden = !CLOUD;
+  updateFoodButton();
   $('#steps').value = d.steps ?? '';
   $('#active').value = d.active_cal ?? '';
   $('#steps-goal').textContent = `Goal ${fmtInt(pl.stepGoal)} steps`;
@@ -587,13 +589,38 @@ async function addFood(item) {
 $('#food-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const kcal = Math.round(numOrNull($('#food-kcal').value) || 0);
-  if (kcal <= 0 || kcal > 5000) return toast('Enter the calories (e.g. 450)');
-  const name = $('#food-name').value.trim().slice(0, 60);
+  const desc = $('#food-name').value.trim();
+  // No calories typed: let Claude estimate from the description
+  if (!$('#food-kcal').value.trim() && desc && CLOUD) return estimateFood(desc);
+  if (kcal <= 0 || kcal > 5000) return toast(CLOUD ? 'Type what you ate, or the calories' : 'Enter the calories (e.g. 450)');
   $('#food-name').value = ''; $('#food-kcal').value = '';
   $('#food-kcal').blur();
-  await addFood({ name, kcal });
+  await addFood({ name: desc.slice(0, 60), kcal });
 });
-$('#food-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#food-kcal').focus(); } });
+
+async function estimateFood(desc) {
+  const panel = $('#est-panel');
+  if (desc.length > 500) return toast('Keep it under 500 characters');
+  $('#food-name').blur();
+  renderReview(panel, { loading: 'Working out the calories…' });
+  try {
+    const { data, error } = await sb.functions.invoke('food-photo', { body: { text: desc } });
+    if (error) throw new Error(await fnError(error));
+    const items = reviewItems(data);
+    if (!items.length) return renderReview(panel, { error: data.summary || "Couldn't work that one out. Try adding more detail." });
+    $('#food-name').value = '';
+    updateFoodButton();
+    renderReview(panel, { summary: data.summary, items });
+  } catch (err) {
+    renderReview(panel, { error: err.message || 'Something went wrong.' });
+  }
+}
+function updateFoodButton() {
+  const estimate = CLOUD && !$('#food-kcal').value.trim() && $('#food-name').value.trim();
+  $('#food-submit').textContent = estimate ? '✨ Estimate' : 'Add';
+}
+$('#food-name').addEventListener('input', updateFoodButton);
+$('#food-kcal').addEventListener('input', updateFoodButton);
 
 // ---------- workouts ----------
 $('#act-type').innerHTML = ACTIVITIES.map((a) => `<option value="${a.key}">${a.icon} ${a.label}</option>`).join('');
@@ -630,7 +657,6 @@ $('#act-list').addEventListener('click', async (e) => {
 });
 
 // ---------- photo → calories (Claude via the food-photo Edge Function) ----------
-let photoItems = [];
 
 // Shrinks the photo on the phone (also turns iPhone HEIC into JPEG) before upload
 function resizeImage(file, max = 1600) {
@@ -680,39 +706,43 @@ async function lookupBarcode(code) {
 }
 
 async function fnError(error) {
-  if (error.context?.status === 404) return 'Photo scanning isn\'t set up yet. Deploy the food-photo function (see README).';
+  if (error.context?.status === 404) return 'Calorie estimates aren\'t set up yet. Deploy the food-photo function (see README).';
   try { const j = await error.context.json(); if (j?.error) return j.error; } catch {}
   return 'Could not reach the photo service. Check your connection.';
 }
 
-function renderPhotoPanel(state) {
-  const el = $('#photo-panel');
+// Review list shared by the photo card and the typed-food estimate (items kept on the element)
+function renderReview(el, state) {
   el.hidden = false;
   if (state.loading) { el.innerHTML = `<p class="small muted">🔍 ${esc(state.loading)}</p>`; return; }
   if (state.error) { el.innerHTML = `<p class="small">${esc(state.error)}</p><div class="row gap"><button class="btn" data-act="close">Close</button></div>`; return; }
-  photoItems = state.items;
+  el.items = state.items;
   el.innerHTML = `<p class="small muted">${esc(state.summary || '')}</p>
     <ul class="list">${state.items.map((it, i) => `<li><label class="pick"><input type="checkbox" data-i="${i}" ${it.on ? 'checked' : ''}><span>${esc(it.name)}<span class="mac">${macroText(it)}</span></span></label><input class="kcal-in" type="number" min="1" max="5000" inputmode="numeric" data-k="${i}" value="${Math.round(it.kcal)}"></li>`).join('')}</ul>
     <p class="small muted">Tick what you ate and adjust calories if needed.</p>
     <div class="row gap"><button class="btn primary" data-act="add">Add</button><button class="btn" data-act="close">Cancel</button></div>`;
 }
 
+// Meals: tick every item. Labels/barcodes are alternatives (serve vs pack): tick the first
+const reviewItems = (data) => (data.items || []).map((it, i) => ({
+  name: it.name, kcal: it.kcal, on: data.kind === 'meal' || i === 0,
+  ...(it.protein_g != null ? { protein: it.protein_g, carbs: it.carbs_g, fat: it.fat_g } : {}),
+}));
+
 $('#photo-btn').addEventListener('click', () => $('#photo-input').click());
 $('#photo-input').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
+  const panel = $('#photo-panel');
+  const renderPhotoPanel = (state) => renderReview(panel, state);
   renderPhotoPanel({ loading: 'Reading your photo…' });
   try {
     const image = await resizeImage(file);
     renderPhotoPanel({ loading: 'Working out the calories…' });
     const { data, error } = await sb.functions.invoke('food-photo', { body: { image, mediaType: 'image/jpeg' } });
     if (error) throw new Error(await fnError(error));
-    // Meals: tick every item. Labels/barcodes are alternatives (serve vs pack): tick the first
-    let items = (data.items || []).map((it, i) => ({
-      name: it.name, kcal: it.kcal, on: data.kind === 'meal' || i === 0,
-      ...(it.protein_g != null ? { protein: it.protein_g, carbs: it.carbs_g, fat: it.fat_g } : {}),
-    }));
+    let items = reviewItems(data);
     let summary = data.summary;
     if (data.kind === 'barcode' && data.barcode) {
       renderPhotoPanel({ loading: `Looking up barcode ${data.barcode}…` });
@@ -727,23 +757,25 @@ $('#photo-input').addEventListener('change', async (e) => {
   }
 });
 
-$('#photo-panel').addEventListener('click', async (e) => {
-  const act = e.target.closest('[data-act]')?.dataset.act;
-  if (act === 'close') { $('#photo-panel').hidden = true; return; }
-  if (act !== 'add') return;
-  const d = ensureDay(viewDate);
-  let n = 0;
-  document.querySelectorAll('#photo-panel [data-i]').forEach((cb) => {
-    if (!cb.checked) return;
-    const kcal = Math.round(numOrNull($(`#photo-panel [data-k="${cb.dataset.i}"]`).value) || 0);
-    if (kcal > 0 && kcal <= 5000) { d.foods.push(foodItem(photoItems[+cb.dataset.i], kcal)); n++; }
+for (const panel of [$('#photo-panel'), $('#est-panel')]) {
+  panel.addEventListener('click', async (e) => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act === 'close') { panel.hidden = true; return; }
+    if (act !== 'add') return;
+    const d = ensureDay(viewDate);
+    let n = 0;
+    panel.querySelectorAll('[data-i]').forEach((cb) => {
+      if (!cb.checked) return;
+      const kcal = Math.round(numOrNull(panel.querySelector(`[data-k="${cb.dataset.i}"]`).value) || 0);
+      if (kcal > 0 && kcal <= 5000) { d.foods.push(foodItem(panel.items[+cb.dataset.i], kcal)); n++; }
+    });
+    if (!n) return toast('Tick at least one item');
+    panel.hidden = true;
+    renderToday();
+    await saveDay(viewDate);
+    toast(`Added ${n} item${n > 1 ? 's' : ''}`);
   });
-  if (!n) return toast('Tick at least one item');
-  $('#photo-panel').hidden = true;
-  renderToday();
-  await saveDay(viewDate);
-  toast(`Added ${n} item${n > 1 ? 's' : ''}`);
-});
+}
 
 $('#food-chips').addEventListener('click', (e) => {
   const b = e.target.closest('.chip');

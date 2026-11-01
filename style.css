@@ -118,6 +118,8 @@ input[type="date"] { min-height: 46px; }
 
 .kcal-in { flex: 0 0 92px; }
 h3 { font-size: 15px; margin: 0; }
+#food-form { gap: 8px; }
+.food-submit { flex: 0 0 112px; }
 .act-head { margin: 16px 0 8px; padding-top: 14px; border-top: 1px solid var(--line); }
 #act-type { flex: 1; }
 .macros { display: flex; flex-direction: column; gap: 4px; }
