@@ -851,6 +851,28 @@ $('#export').addEventListener('click', () => {
   URL.revokeObjectURL(a.href);
 });
 
+// ---------- appearance (per device; Auto follows the phone's setting) ----------
+function applyTheme(theme) {
+  if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  else delete document.documentElement.dataset.theme;
+  document.querySelectorAll('#theme-seg button').forEach((b) => b.classList.toggle('on', b.dataset.theme === (theme || 'auto')));
+  const metas = document.querySelectorAll('meta[name="theme-color"]');
+  metas.forEach((m) => {
+    const forced = theme === 'light' ? '#f5f6f8' : theme === 'dark' ? '#0e1013' : null;
+    m.content = forced || (m.media.includes('dark') ? '#0e1013' : '#f5f6f8');
+  });
+}
+let savedTheme = 'auto';
+try { savedTheme = localStorage.getItem('xf-theme') || 'auto'; } catch {}
+applyTheme(savedTheme);
+$('#theme-seg').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  try { localStorage.setItem('xf-theme', b.dataset.theme); } catch {}
+  applyTheme(b.dataset.theme);
+  if (currentView === 'progress') renderProgress(); // chart colours are read from CSS when drawn
+});
+
 $('#signout').addEventListener('click', async () => { if (CLOUD) await sb.auth.signOut(); });
 
 $('#auth-form').addEventListener('submit', async (e) => {

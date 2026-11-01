@@ -13,7 +13,11 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>X-Fitness</title>
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
+<script>
+  // Apply the saved theme before first paint so there's no flash
+  try { const t = localStorage.getItem('xf-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
+</script>
 </head>
 <body>
 <header class="top">
@@ -203,6 +207,11 @@
     <div class="card">
       <h2>Settings</h2>
       <div class="stack">
+        <div class="seg" id="theme-seg" role="group" aria-label="Appearance">
+          <button data-theme="auto">Auto</button>
+          <button data-theme="light">☀️ Light</button>
+          <button data-theme="dark">🌙 Dark</button>
+        </div>
         <button class="btn" id="edit-goal">Edit goal &amp; details</button>
         <button class="btn" id="export">Export data (CSV)</button>
         <button class="btn" id="signout">Sign out</button>
@@ -223,7 +232,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=8"></script>
-<script src="app.js?v=8"></script>
+<script src="config.js?v=9"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>

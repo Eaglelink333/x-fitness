@@ -16,8 +16,9 @@
   --radius: 16px;
   color-scheme: light;
 }
+/* Dark tokens: follow the phone (Auto) unless Settings forces light or dark */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0e1013;
     --card: #171a1f;
     --text: #f1f3f5;
@@ -34,6 +35,23 @@
     --fat: #fbbf24;
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1013;
+  --card: #171a1f;
+  --text: #f1f3f5;
+  --muted: #9aa3ad;
+  --line: #262b33;
+  --soft: #20242b;
+  --accent: #818cf8;
+  --accent-text: #0e1013;
+  --good: #4ade80;
+  --warn: #fbbf24;
+  --bad: #f87171;
+  --protein: #818cf8;
+  --carbs: #22d3ee;
+  --fat: #fbbf24;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
