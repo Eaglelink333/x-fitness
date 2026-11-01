@@ -294,3 +294,6 @@ code.url { display: block; margin-top: 6px; padding: 8px; word-break: break-all;
   background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 12px;
   font-size: 14px; font-weight: 600; max-width: calc(100% - 32px); text-align: center;
 }
+.net-num { font-weight: 700; font-size: 1.1rem; }
+.net-num.good { color: var(--good, #2e9e5b); }
+.net-num.bad { color: var(--bad, #d64545); }

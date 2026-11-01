@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>X-Fitness</title>
-<link rel="stylesheet" href="style.css?v=19">
+<link rel="stylesheet" href="style.css?v=20">
 <script>
   // Apply the saved theme before first paint so there's no flash
   try { const t = localStorage.getItem('xf-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
@@ -159,6 +159,13 @@
       <ul id="act-list" class="list"></ul>
     </div>
 
+    <div class="card" id="net-card" hidden>
+      <div class="row between"><h2>Net calories</h2><span id="net-num" class="net-num"></span></div>
+      <p id="net-sub" class="muted small"></p>
+      <ul id="net-rows" class="list"></ul>
+      <p class="muted small">Estimate: food eaten minus resting burn, steps (or Watch active kcal) and workouts. Walks and runs are already in your steps.</p>
+    </div>
+
     <div class="card">
       <div class="row between"><h2>Today's advice</h2><button class="icon-btn refresh" id="advice-refresh" type="button" aria-label="Refresh advice" hidden>↻</button></div>
       <p id="advice-headline" class="advice-headline" hidden></p>
@@ -288,7 +295,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=19"></script>
-<script src="app.js?v=19"></script>
+<script src="config.js?v=20"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>

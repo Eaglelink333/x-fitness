@@ -133,6 +133,21 @@ function movementOf(date) {
   return { steps: d.steps || 0, fromWorkouts, total: (d.steps || 0) + fromWorkouts };
 }
 
+// Net = food eaten minus what you burnt. Burn = resting + daily living (BMR x 1.2) plus movement:
+// Watch active kcal if synced, else a steps estimate, plus workouts not already in those numbers.
+function netOf(date, pl) {
+  const d = getDay(date), kg = currentWeight(date);
+  const rest = Math.round(((pl.tdee / ACTIVITY_FACTOR) * 1.2) / 10) * 10;
+  const hasWatch = d.active_cal != null;
+  const stepKcal = d.steps ? Math.round((d.steps * 0.0005 * kg) / 5) * 5 : 0;
+  const workouts = d.activities
+    .filter((a) => !STEP_BASED.includes(a.type) && a.name !== 'Apple Watch exercise' && !(hasWatch && a.src === 'watch'))
+    .reduce((s, a) => s + (+a.kcal || 0), 0);
+  const move = (hasWatch ? +d.active_cal : stepKcal) + workouts;
+  const eaten = kcalOf(date);
+  return { eaten, rest, move, net: eaten - rest - move };
+}
+
 // ---------- macros (grams; only on items from photos, barcodes or recent foods that had them) ----------
 const MACROS = ['protein', 'carbs', 'fat'];
 const hasMacros = (f) => f.protein != null;
@@ -472,6 +487,16 @@ function renderToday() {
   $('#act-list').innerHTML = d.activities.map((a, i) =>
     `<li><span>${activityOf(a.type).icon} ${esc(actLabel(a))} <span class="muted">· ${a.mins} min${a.src === 'watch' ? ' · ⌚ Watch' : ''}</span></span><span class="row gap"><span class="muted">~${fmtInt(a.kcal)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></span></li>`).join('');
   updateActPreview();
+
+  const nt = netOf(viewDate, pl);
+  $('#net-card').hidden = !nt.eaten && !nt.move;
+  $('#net-num').textContent = `${nt.net <= 0 ? '−' : '+'}${fmtInt(Math.abs(nt.net))} kcal`;
+  $('#net-num').className = 'net-num ' + (nt.net <= 0 ? 'good' : 'bad');
+  $('#net-sub').textContent = !nt.eaten ? 'Log your food to see your net.'
+    : nt.net <= 0 ? `Deficit today ≈ ${fmt1((-nt.net / KCAL_PER_KG) * 7)} kg a week if every day looked like this`
+    : 'Surplus today: you ate more than you burnt';
+  $('#net-rows').innerHTML = [['Food eaten', fmtInt(nt.eaten)], ['Resting + daily living', `−${fmtInt(nt.rest)}`],
+    ['Steps, Watch + workouts', `−${fmtInt(nt.move)}`]].map(([k, v]) => `<li><span>${k}</span><span class="muted">${v}</span></li>`).join('');
 
   renderAdvice();
   refreshAdvice();
@@ -839,6 +864,7 @@ function coachContext() {
       date: d, weekday: DAY_NAMES[parseYmd(d).getDay()], weight_kg: x.weight, kcal: kcalOf(d) || null,
       protein_g: Math.round(m.protein) || null, carbs_g: Math.round(m.carbs) || null, fat_g: Math.round(m.fat) || null,
       foods_logged: x.foods.length, foods_without_macros: m.missing, steps: x.steps, active_kcal: x.active_cal,
+      net_kcal: x.foods.length ? netOf(d, pl).net : null, // food eaten minus estimated burn (negative = deficit)
       kcal_from_steps_estimate: x.steps ? Math.round(x.steps * 0.0005 * pl.w) : null, // used when no Watch data
       move_total: movementOf(d).total, // steps + workouts as step equivalents, vs the move goal
 
