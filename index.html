@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,600&family=Manrope:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=29">
+<link rel="stylesheet" href="style.css?v=30">
 <script>
   // Apply the saved theme before first paint so there's no flash
   try { const t = localStorage.getItem('xf-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
@@ -266,13 +266,16 @@
     </form>
   </section>
 
+  <!-- Recipes: meal ideas from the plan, each opens a full recipe -->
+  <section id="view-recipes" class="view" hidden>
+    <div id="recipe-list"></div>
+    <div id="recipe-view" hidden></div>
+  </section>
+
   <!-- Plan -->
   <section id="view-plan" class="view" hidden>
     <div class="card" id="ai-plan"></div>
-    <div class="card" id="ai-meals" hidden>
-      <div class="row between"><h2>Meal ideas</h2><span class="muted small">Tap + to add to today</span></div>
-      <div id="meal-ideas"></div>
-    </div>
+
     <div class="card">
       <div class="title-row"><h2>Your daily targets</h2><button class="info" type="button" data-info="plan-note" aria-expanded="false" aria-label="How your targets are worked out">i</button></div>
       <div id="plan-note" class="info-note" hidden></div>
@@ -357,6 +360,7 @@
   <button data-view="today" class="on"><span class="ti" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></span>Today</button>
   <button data-view="progress"><span class="ti" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16"/><path d="M5 15l4.5-4.5 3.5 3 6-6.5"/><path d="M15 7h4v4"/></svg></span>Progress</button>
   <button data-view="coach"><span class="ti" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12z"/></svg></span>Coach</button>
+  <button data-view="recipes"><span class="ti" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11h16a8 8 0 0 1-16 0z"/><path d="M8 7c0-1 1-1.5 1-2.5M12 7c0-1 1-1.5 1-2.5M16 7c0-1 1-1.5 1-2.5"/></svg></span>Recipes</button>
   <button data-view="plan"><span class="ti" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="4" width="15" height="16.5" rx="2.5"/><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4"/></svg></span>Plan</button>
 </nav>
 
@@ -369,7 +373,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=29"></script>
-<script src="app.js?v=29"></script>
+<script src="config.js?v=30"></script>
+<script src="app.js?v=30"></script>
 </body>
 </html>

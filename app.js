@@ -401,8 +401,8 @@ function advice() {
 // ---------- views ----------
 function show(view) {
   currentView = view;
-  for (const v of ['auth', 'reset', 'setup', 'quiz', 'today', 'progress', 'coach', 'plan']) $('#view-' + v).hidden = v !== view;
-  const main = ['today', 'progress', 'coach', 'plan'].includes(view);
+  for (const v of ['auth', 'reset', 'setup', 'quiz', 'today', 'progress', 'coach', 'recipes', 'plan']) $('#view-' + v).hidden = v !== view;
+  const main = MAIN_VIEWS.includes(view);
   $('#tabs').hidden = !main;
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
   renderHeader();
@@ -411,6 +411,7 @@ function show(view) {
   if (view === 'today') renderToday();
   if (view === 'progress') renderProgress();
   if (view === 'plan') renderPlan();
+  if (view === 'recipes') renderRecipes();
   if (view === 'coach') renderCoach(); // scrolls to the latest message itself
   else window.scrollTo(0, 0);
 }
@@ -425,7 +426,7 @@ function rerender() {
 
 // Remember tab + scroll position so an iOS reload (after switching apps) lands you back in place
 const PLACE_KEY = 'xf-place';
-const MAIN_VIEWS = ['today', 'progress', 'coach', 'plan'];
+const MAIN_VIEWS = ['today', 'progress', 'coach', 'recipes', 'plan'];
 function rememberPlace() {
   if (!MAIN_VIEWS.includes(currentView)) return;
   try { localStorage.setItem(PLACE_KEY, JSON.stringify({ view: currentView, y: Math.round(window.scrollY), at: Date.now() })); } catch {}
@@ -957,34 +958,105 @@ function renderAiPlan() {
     card.innerHTML = `<h2>✨ Personalise your plan</h2>
       <p class="small">Answer a few quick questions and we build your workouts, meals and tips around you: your schedule, what you enjoy, how you eat and what usually gets in the way.</p>
       <div class="stack" style="margin-top:12px"><button class="btn primary" data-act="quiz">Start the questionnaire</button></div>`;
-    $('#ai-meals').hidden = true;
     return;
   }
   card.innerHTML = `<h2>✨ Your plan</h2>
     <p class="plan-summary">${esc(ai.summary)}</p>
     <details class="tips"><summary class="strong">Your tips (${ai.tips.length})</summary>
       <ul class="advice" style="margin-top:10px">${ai.tips.map((t) => `<li><span class="i">✨</span><span>${esc(t)}</span></li>`).join('')}</ul></details>
-    <p class="muted small">Built ${ai.created ? fmtDate(ai.created) : ''} from your answers. Your weekly workouts below follow this plan.</p>
+    <p class="muted small">Built ${ai.created ? fmtDate(ai.created) : ''} from your answers. Your weekly workouts below follow this plan, and your meal ideas are in Recipes.</p>
     <div class="stack" style="margin-top:10px"><button class="btn" data-act="quiz">Redo questionnaire</button></div>`;
-
-  $('#ai-meals').hidden = !ai.meals?.length;
-  $('#meal-ideas').innerHTML = ['breakfast', 'lunch', 'dinner', 'snack'].map((type) => {
-    const list = (ai.meals || []).map((m, i) => ({ ...m, i })).filter((m) => m.meal === type);
-    if (!list.length) return '';
-    return `<div class="meal-group"><h3>${type === 'snack' ? 'Snacks' : type}</h3><ul class="list">${list.map((m) =>
-      `<li><span>${esc(m.name)}<span class="mac">${fmtInt(m.kcal)} kcal · P ${Math.round(m.protein_g)} · C ${Math.round(m.carbs_g)} · F ${Math.round(m.fat_g)} g</span></span><button class="add" data-meal="${m.i}" aria-label="Add to today">+</button></li>`).join('')}</ul></div>`;
-  }).join('');
 }
 
 $('#ai-plan').addEventListener('click', (e) => { if (e.target.closest('[data-act="quiz"]')) show('quiz'); });
-$('#meal-ideas').addEventListener('click', async (e) => {
-  const b = e.target.closest('[data-meal]');
-  if (!b) return;
-  const m = profile.plan.meals[+b.dataset.meal];
-  const t = todayStr();
-  ensureDay(t).foods.push(foodItem({ name: m.name, kcal: m.kcal, protein: m.protein_g, carbs: m.carbs_g, fat: m.fat_g }));
-  toast(`Added ${m.name} to today`);
-  await saveDay(t, ['foods']);
+// ---------- recipes: meal ideas from the plan; the full recipe is written on first open and saved to the plan ----------
+const MEAL_TYPES = [['breakfast', 'Breakfast'], ['lunch', 'Lunch'], ['dinner', 'Dinner'], ['snack', 'Snacks']];
+let openRecipe = null, recipeBusy = false, recipeErr = '';
+const macroLine = (m) => `${fmtInt(m.kcal)} kcal · P ${Math.round(m.protein_g)} · C ${Math.round(m.carbs_g)} · F ${Math.round(m.fat_g)} g`;
+
+function renderRecipes() {
+  const meals = profile.plan?.meals || [];
+  const showList = openRecipe == null || !meals[openRecipe];
+  $('#recipe-list').hidden = !showList;
+  $('#recipe-view').hidden = showList;
+  if (!showList) return renderRecipe(meals[openRecipe]);
+  if (!meals.length) {
+    $('#recipe-list').innerHTML = `<div class="card"><h2>Recipes</h2>
+      <p class="small">Answer the questionnaire and you'll get meal ideas built for your targets, each with a full recipe.</p>
+      ${CLOUD ? '<div class="stack" style="margin-top:12px"><button class="btn primary" data-act="quiz">Start the questionnaire</button></div>' : ''}</div>`;
+    return;
+  }
+  $('#recipe-list').innerHTML = `<div class="recipes-head"><h1>Recipes</h1><p class="muted small">Ideas built for your targets. Tap one for the recipe.</p></div>`
+    + MEAL_TYPES.map(([type, label]) => {
+      const list = meals.map((m, i) => ({ ...m, i })).filter((m) => m.meal === type);
+      if (!list.length) return '';
+      return `<div class="card"><h2>${label}</h2><ul class="list">${list.map((m) =>
+        `<li><button class="recipe-row" type="button" data-recipe="${m.i}"><span>${esc(m.name)}<span class="mac">${macroLine(m)}${m.recipe ? ` · ${m.recipe.time_mins} min` : ''}</span></span><span class="chev" aria-hidden="true">›</span></button></li>`).join('')}</ul></div>`;
+    }).join('');
+}
+
+function renderRecipe(m) {
+  const r = m.recipe;
+  const head = `<button class="text-btn back" type="button" data-act="back">‹ All recipes</button>
+    <div class="card recipe-hero">
+      <div class="muted small cap">${esc(MEAL_TYPES.find(([k]) => k === m.meal)?.[1] || '')}</div>
+      <h1>${esc(m.name)}</h1>
+      ${r ? `<p class="small">${esc(r.intro)}</p>` : ''}
+      <div class="recipe-stats">
+        <div><b>${fmtInt(m.kcal)}</b><span>kcal</span></div><div><b>${Math.round(m.protein_g)}g</b><span>protein</span></div>
+        <div><b>${Math.round(m.carbs_g)}g</b><span>carbs</span></div><div><b>${Math.round(m.fat_g)}g</b><span>fat</span></div>
+      </div>
+      ${r ? `<p class="muted small">${r.time_mins} min · serves ${r.serves}${r.serves > 1 ? ' (numbers are per serve)' : ''}</p>` : ''}
+    </div>`;
+  if (!r) {
+    $('#recipe-view').innerHTML = head + `<div class="card">${recipeBusy
+      ? '<p class="small muted">✨ Writing your recipe…</p><div class="skel"></div><div class="skel"></div><div class="skel short"></div>'
+      : `<p class="small">${esc(recipeErr || 'The recipe is ready to write.')}</p><div class="stack" style="margin-top:10px"><button class="btn primary" data-act="write">${recipeErr ? 'Try again' : 'Show the recipe'}</button></div>`}</div>`;
+    return;
+  }
+  $('#recipe-view').innerHTML = head + `
+    <div class="card"><h2>Ingredients</h2><ul class="list ingredients">${r.ingredients.map((x) => `<li><span>${esc(x.item)}</span><span class="muted">${esc(x.amount)}</span></li>`).join('')}</ul></div>
+    <div class="card"><h2>Method</h2><ol class="method">${r.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
+      ${r.tip ? `<p class="info-note" style="margin:14px 0 0"><b>Tip:</b> ${esc(r.tip)}</p>` : ''}</div>
+    <div class="cook-bar"><button class="btn primary" type="button" data-act="made">I made this · add to today</button></div>`;
+}
+
+async function writeRecipe(i) {
+  const m = profile.plan.meals[i];
+  if (!m || m.recipe || recipeBusy || !CLOUD) return;
+  recipeBusy = true; recipeErr = '';
+  if (currentView === 'recipes') renderRecipes();
+  try {
+    const a = profile.answers || {};
+    const meal = { name: m.name, meal: m.meal, kcal: m.kcal, protein_g: m.protein_g, carbs_g: m.carbs_g, fat_g: m.fat_g };
+    const { data, error } = await sb.functions.invoke('food-photo', { body: { mode: 'recipe', meal, answers: { diet: a.diet, cooking: a.cooking, foods: a.foods } } });
+    if (error) throw new Error(await fnError(error));
+    if (!data?.steps?.length) throw new Error('No recipe came back. Try again.');
+    m.recipe = data; // saved with the plan, so it's there on every device next time
+    saveProfile().catch(() => {});
+  } catch (err) { recipeErr = err.message || 'Something went wrong. Try again.'; }
+  recipeBusy = false;
+  if (currentView === 'recipes') renderRecipes();
+}
+
+$('#view-recipes').addEventListener('click', async (e) => {
+  if (e.target.closest('[data-act="quiz"]')) return show('quiz');
+  const row = e.target.closest('[data-recipe]');
+  if (row) {
+    openRecipe = +row.dataset.recipe; recipeErr = '';
+    renderRecipes(); window.scrollTo(0, 0);
+    writeRecipe(openRecipe);
+    return;
+  }
+  const act = e.target.closest('[data-act]')?.dataset.act;
+  if (act === 'back') { openRecipe = null; renderRecipes(); window.scrollTo(0, 0); }
+  if (act === 'write') writeRecipe(openRecipe);
+  if (act === 'made') {
+    const m = profile.plan.meals[openRecipe], t = todayStr();
+    ensureDay(t).foods.push(foodItem({ name: m.name, kcal: m.kcal, protein: m.protein_g, carbs: m.carbs_g, fat: m.fat_g }));
+    toast(`Added ${m.name} to today`);
+    await saveDay(t, ['foods']);
+  }
 });
 
 // ---------- questionnaire ----------
@@ -1451,6 +1523,7 @@ function toast(msg, undo) {
 
 document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => {
   if (b.dataset.view === 'today') viewDate = todayStr();
+  if (b.dataset.view === 'recipes' && currentView === 'recipes') openRecipe = null; // tapping the tab again goes back to the list
   show(b.dataset.view);
 }));
 

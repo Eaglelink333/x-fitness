@@ -449,3 +449,37 @@ h2:has(+ .info) { margin-bottom: 0; }
 .chart-info { position: absolute; top: 4px; right: 2px; }
 details.tips { margin: 10px 0 4px; }
 details.tips summary { font-size: 15px; padding: 6px 0; }
+/* Recipes */
+.recipes-head { padding: 4px 2px 0; }
+.recipes-head h1 { margin-bottom: 2px; }
+.recipe-row {
+  width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; text-align: left;
+  font: inherit; color: inherit; background: none; border: 0; padding: 12px 0; cursor: pointer; min-height: 52px;
+}
+.recipe-row .chev { font-size: 22px; color: var(--muted); transition: transform 0.2s var(--ease), color 0.2s; }
+@media (hover: hover) { .recipe-row:hover .chev { transform: translateX(3px); color: var(--accent); } .recipe-row:hover > span:first-child { color: var(--accent); } }
+#recipe-list .list li, #recipe-list .list li:first-child { padding: 0; }
+.back { align-self: flex-start; padding: 6px 0; }
+.recipe-hero { background: var(--hero); }
+.recipe-hero .cap { text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; font-size: 11px; }
+.recipe-hero h1 { margin: 4px 0 8px; }
+.recipe-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 14px 0 6px; }
+.recipe-stats div { background: var(--soft); border-radius: var(--radius-sm); padding: 8px 6px; text-align: center; }
+.recipe-stats b { display: block; font-family: var(--display); font-size: 22px; font-weight: 600; line-height: 1.1; font-variant-numeric: lining-nums; }
+.recipe-stats span { font-size: 11px; color: var(--muted); }
+.ingredients li { font-size: 15px; }
+.method { margin: 0; padding: 0; list-style: none; counter-reset: step; }
+.method li { counter-increment: step; position: relative; padding: 0 0 14px 40px; font-size: 15px; line-height: 1.55; }
+.method li::before {
+  content: counter(step); position: absolute; left: 0; top: -1px; width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center; font-family: var(--display); font-weight: 600; font-size: 17px;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.cook-bar { position: sticky; bottom: calc(84px + env(safe-area-inset-bottom)); z-index: 3; }
+.cook-bar .btn { width: 100%; box-shadow: 0 8px 24px rgb(0 0 0 / 0.18); }
+.skel { height: 14px; border-radius: 7px; margin-top: 10px; background: linear-gradient(90deg, var(--soft), var(--line), var(--soft)); background-size: 200% 100%; animation: shimmer 1.2s infinite linear; }
+.skel.short { width: 60%; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.tabs button { max-width: 150px; }
+#recipe-list, #recipe-view { display: flex; flex-direction: column; gap: 14px; }
+#recipe-list[hidden], #recipe-view[hidden] { display: none; }
