@@ -821,8 +821,9 @@ $('#advice').addEventListener('click', (e) => {
 });
 $('#advice-chat').addEventListener('click', () => askCoach("Let's go through today. Based on my advice and logs, what should I focus on?"));
 
-// ---------- coach chat (history kept on this device) ----------
+// ---------- coach chat (cached on this device, synced through the chat table) ----------
 const CHAT_KEY = () => 'xf-chat-' + (user?.id || 'local');
+const CHAT_TS = () => CHAT_KEY() + '-ts';
 let chatLog = null;
 let chatBusy = false;
 
@@ -834,7 +835,27 @@ function loadChat() {
 function saveChat() {
   // Trim in place: sendChat keeps a reference to this array while waiting for a reply
   if (chatLog.length > 40) chatLog.splice(0, chatLog.length - 40);
-  try { localStorage.setItem(CHAT_KEY(), JSON.stringify(chatLog)); } catch {}
+  const ts = new Date().toISOString();
+  try { localStorage.setItem(CHAT_KEY(), JSON.stringify(chatLog)); localStorage.setItem(CHAT_TS(), ts); } catch {}
+  // Errors (table not created yet) are ignored: the chat still works on this device
+  if (CLOUD && user) sb.from('chat').upsert({ user_id: user.id, messages: chatLog, updated_at: ts }).then(() => {}, () => {});
+}
+
+// Last write wins: adopt the other device's conversation if it is newer than ours
+let chatSyncedAt = 0;
+async function syncChat() {
+  if (!CLOUD || !user || chatBusy || Date.now() - chatSyncedAt < 5000) return;
+  chatSyncedAt = Date.now();
+  const { data, error } = await sb.from('chat').select('messages, updated_at').maybeSingle();
+  if (error || !data || chatBusy) return;
+  let mine = ''; try { mine = localStorage.getItem(CHAT_TS()) || ''; } catch {}
+  if (data.updated_at && data.updated_at > mine && Array.isArray(data.messages)) {
+    chatLog = data.messages;
+    try { localStorage.setItem(CHAT_KEY(), JSON.stringify(chatLog)); localStorage.setItem(CHAT_TS(), data.updated_at); } catch {}
+    if (currentView === 'coach') renderCoach();
+  } else if (!data.updated_at || data.updated_at < mine) {
+    if (loadChat().length) saveChat();
+  }
 }
 
 // Escaped text → paragraphs, "- " bullets and **bold**
@@ -899,6 +920,7 @@ function coachGreeting() {
 const CHAT_PROMPTS = ['How am I tracking?', "Why isn't the scale moving?", 'Give me a high-protein dinner idea', 'What should I focus on this week?', 'I need some motivation'];
 
 function renderCoach() {
+  syncChat();
   const log = loadChat();
   const msgs = [{ role: 'assistant', content: coachGreeting() }, ...log];
   $('#chat').innerHTML = msgs.map((m) => m.role === 'user'
@@ -1423,6 +1445,7 @@ $('#auth-signup').addEventListener('click', async () => {
 // Refresh when you come back to the app (e.g. after the Shortcut synced from Safari)
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState !== 'visible' || !profile || (CLOUD && !user)) return;
+  if (currentView === 'coach') syncChat();
   try { ({ days } = await loadAll()); } catch { return; }
   if (viewDate > todayStr()) viewDate = todayStr();
   if (['today', 'progress', 'plan'].includes(currentView) && !document.activeElement?.matches('input, textarea')) rerender();
@@ -1431,6 +1454,7 @@ document.addEventListener('visibilitychange', async () => {
 // ---------- boot ----------
 async function boot() {
   chatLog = null; // chat history is per user
+  chatSyncedAt = 0;
   if (CLOUD && !user) { profile = null; days = {}; return show('auth'); }
   try { ({ profile, days } = await loadAll()); }
   catch (err) { toast('Could not load data: ' + err.message); return; }

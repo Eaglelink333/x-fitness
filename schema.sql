@@ -45,3 +45,14 @@ create policy "own profile" on public.profile
 
 create policy "own days" on public.days
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Coach chat history, so it follows you between phone and desktop
+create table if not exists public.chat (
+  user_id    uuid primary key references auth.users on delete cascade,
+  messages   jsonb not null default '[]',
+  updated_at timestamptz not null default now()
+);
+alter table public.chat enable row level security;
+drop policy if exists "own chat" on public.chat;
+create policy "own chat" on public.chat
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
