@@ -518,48 +518,107 @@ function recentFoods() {
 
 function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 
+// '#rrggbb' + alpha → rgba() for canvas (canvas can't read color-mix)
+function alpha(hex, a) {
+  const n = parseInt(hex.replace('#', '').slice(0, 6), 16);
+  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+// Vertical gradient sized to the plot area, so bars and the area fill fade towards the baseline
+const fade = (top, bottom) => (ctx) => {
+  const area = ctx.chart.chartArea;
+  if (!area) return top;
+  const g = ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+  g.addColorStop(0, top); g.addColorStop(1, bottom);
+  return g;
+};
+
 function renderProgress() {
   const p = profile, pl = plan(), t = todayStr();
-  const labels = [];
-  for (let d = p.start_date; d <= p.goal_date; d = addDays(d, 1)) labels.push(d);
+  const accent = cssVar('--accent'), muted = cssVar('--muted'), line = cssVar('--line'), good = cssVar('--good'), bad = cssVar('--bad');
+  const card = cssVar('--card'), text = cssVar('--text');
+  const range = (from, to) => { const out = []; for (let d = from; d <= to; d = addDays(d, 1)) out.push(d); return out; };
 
-  const accent = cssVar('--accent'), muted = cssVar('--muted'), line = cssVar('--line'), good = cssVar('--good');
-  let datasets, note;
+  // Weight shows the whole journey to the goal date; bars show the last 30 days so they stay readable
+  const labels = chartMode === 'weight' ? range(p.start_date, p.goal_date)
+    : range([p.start_date, addDays(t, -29)].sort()[1], t);
+  const dashed = { type: 'line', borderColor: alpha(muted, 0.7), borderDash: [4, 5], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 0, order: 2 };
+  const barStyle = { type: 'bar', borderRadius: 6, borderSkipped: false, maxBarThickness: 14, categoryPercentage: 0.8, barPercentage: 0.75, order: 1 };
+  const bar = (top) => fade(top, alpha(top, 0.35));
+
+  let datasets, note, head;
   if (chartMode === 'weight') {
+    const ws = labels.map((d) => getDay(d).weight);
     datasets = [
-      { type: 'line', label: 'Weight', data: labels.map((d) => getDay(d).weight), borderColor: accent, backgroundColor: accent, pointRadius: 3, borderWidth: 2.5, spanGaps: true, tension: 0.25 },
-      { type: 'line', label: 'Target', data: labels.map((d) => +targetAt(d).toFixed(2)), borderColor: muted, borderDash: [6, 5], borderWidth: 1.5, pointRadius: 0 },
+      { type: 'line', label: 'Weight', data: ws, borderColor: accent, borderWidth: 2.5, tension: 0.35, spanGaps: true, cubicInterpolationMode: 'monotone',
+        fill: 'start', backgroundColor: fade(alpha(accent, 0.18), alpha(accent, 0)),
+        pointRadius: (c) => (c.raw == null ? 0 : c.dataIndex === ws.findLastIndex((w) => w != null) ? 5 : 0),
+        pointBackgroundColor: (c) => (c.dataIndex === ws.findLastIndex((w) => w != null) ? accent : card),
+        pointBorderColor: accent, pointBorderWidth: 2, pointHoverRadius: 6, order: 1 },
+      { ...dashed, label: 'Target', data: labels.map((d) => +targetAt(d).toFixed(2)) },
+      // Goal marker at the end of the path
+      { type: 'line', label: 'Goal', data: labels.map((d, i) => (i === labels.length - 1 ? p.goal_weight : null)), pointRadius: 5, pointStyle: 'rectRot',
+        pointBackgroundColor: good, pointBorderColor: card, pointBorderWidth: 2, showLine: false, order: 0 },
     ];
-    note = 'Solid line is your weigh-ins. Dashed line is the path to your goal. Stay on or under it.';
+    const last = weighIns().filter((x) => x.date <= t).pop();
+    head = last ? [`${fmt1(pl.w)} kg`, `7-day average · ${fmt1(p.start_weight - pl.w)} kg down since ${fmtDate(p.start_date)}`] : ['–', 'Log your first weigh-in'];
+    note = 'Your weigh-ins against the dashed path to your goal. Stay on or under it.';
   } else if (chartMode === 'kcal') {
+    const ks = labels.map((d) => kcalOf(d) || null);
     datasets = [
-      { type: 'bar', label: 'Calories', data: labels.map((d) => kcalOf(d) || null), backgroundColor: labels.map((d) => (kcalOf(d) > pl.kcal ? cssVar('--bad') : accent)), borderRadius: 4 },
-      { type: 'line', label: 'Target', data: labels.map(() => pl.kcal), borderColor: muted, borderDash: [6, 5], borderWidth: 1.5, pointRadius: 0 },
+      { ...barStyle, label: 'Calories', data: ks, backgroundColor: (c) => bar((ks[c.dataIndex] || 0) > pl.kcal ? bad : accent)(c) },
+      { ...dashed, label: 'Target', data: labels.map(() => pl.kcal) },
     ];
-    note = `Daily target ${fmtInt(pl.kcal)} kcal. Red bars are over-target days.`;
+    const logged = ks.slice(0, -1).filter(Boolean).slice(-7);
+    const under = ks.filter((k) => k && k <= pl.kcal).length, total = ks.filter(Boolean).length;
+    head = logged.length ? [`${fmtInt(avg(logged))} kcal`, `7-day average · target ${fmtInt(pl.kcal)} · ${under}/${total} days on target`] : ['–', 'Log food to see your trend'];
+    note = 'Last 30 days. Red bars went over your target.';
   } else {
+    const ms = labels.map((d) => movementOf(d).total || null);
     datasets = [
-      { type: 'bar', label: 'Steps', data: labels.map((d) => movementOf(d).total || null), backgroundColor: labels.map((d) => (movementOf(d).total >= pl.stepGoal ? good : accent)), borderRadius: 4 },
-      { type: 'line', label: 'Goal', data: labels.map(() => pl.stepGoal), borderColor: muted, borderDash: [6, 5], borderWidth: 1.5, pointRadius: 0 },
+      { ...barStyle, label: 'Move', data: ms, backgroundColor: (c) => bar((ms[c.dataIndex] || 0) >= pl.stepGoal ? good : accent)(c) },
+      { ...dashed, label: 'Goal', data: labels.map(() => pl.stepGoal) },
     ];
-    note = `Move goal ${fmtInt(pl.stepGoal)}: steps plus workouts (as step equivalents). Green bars hit the goal.`;
+    const got = ms.filter(Boolean), hit = ms.filter((m) => m && m >= pl.stepGoal).length;
+    head = got.length ? [fmtInt(avg(got.slice(-7))), `7-day average · goal ${fmtInt(pl.stepGoal)} · hit ${hit} of ${got.length} days`] : ['–', 'Sync steps from Apple Health'];
+    note = 'Last 30 days of steps plus workouts (as step equivalents). Green bars hit the goal.';
   }
+  $('#chart-big').textContent = head[0];
+  $('#chart-sub').textContent = head[1];
   $('#chart-note').textContent = note;
 
   if (chart) chart.destroy();
   if (window.Chart) {
+    Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+    const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isLine = chartMode === 'weight';
     chart = new Chart($('#chart'), {
       data: { labels, datasets },
       options: {
-        responsive: true, maintainAspectRatio: false, animation: false,
+        responsive: true, maintainAspectRatio: false,
+        // Bars grow up one after another; the weight line eases in from the baseline
+        animation: calm ? false : {
+          duration: isLine ? 900 : 650, easing: 'easeOutQuart',
+          delay: (c) => (c.type === 'data' && c.mode === 'default' && !isLine ? c.dataIndex * 18 : 0),
+        },
         interaction: { mode: 'index', intersect: false },
+        layout: { padding: { top: 6, right: 4 } },
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { title: (it) => fmtDate(labels[it[0].dataIndex], { weekday: 'short', day: 'numeric', month: 'short' }) } },
+          tooltip: {
+            backgroundColor: card, titleColor: text, bodyColor: muted, borderColor: line, borderWidth: 1,
+            padding: 10, cornerRadius: 12, displayColors: false, titleFont: { weight: '600' }, caretSize: 5,
+            filter: (it) => it.raw != null,
+            callbacks: {
+              title: (it) => fmtDate(labels[it[0].dataIndex], { weekday: 'short', day: 'numeric', month: 'short' }),
+              label: (it) => `${it.dataset.label}: ${chartMode === 'weight' ? fmt1(it.raw) + ' kg' : fmtInt(it.raw)}`,
+            },
+          },
         },
         scales: {
-          x: { grid: { display: false }, border: { color: line }, ticks: { color: muted, maxTicksLimit: 6, maxRotation: 0, callback: (v) => fmtDate(labels[v]) } },
-          y: { grid: { color: line }, border: { display: false }, ticks: { color: muted }, beginAtZero: chartMode !== 'weight' },
+          x: { grid: { display: false }, border: { display: false }, ticks: { color: muted, maxTicksLimit: 5, maxRotation: 0, font: { size: 11 }, callback: (v) => fmtDate(labels[v]) } },
+          y: { grid: { color: alpha(line.startsWith('#') ? line : '#888888', 0.9), drawTicks: false }, border: { display: false },
+            ticks: { color: muted, padding: 8, maxTicksLimit: 5, font: { size: 11 }, callback: (v) => (v >= 1000 ? fmtInt(v) : v) },
+            beginAtZero: !isLine, grace: isLine ? '8%' : '5%' },
         },
       },
     });
@@ -1356,6 +1415,8 @@ $('#chart-seg').addEventListener('click', (e) => {
   chartMode = b.dataset.mode;
   document.querySelectorAll('#chart-seg button').forEach((x) => x.classList.toggle('on', x === b));
   renderProgress();
+  const head = $('.chart-head');
+  head.classList.remove('swap'); void head.offsetWidth; head.classList.add('swap'); // replay the fade-in
 });
 $('#hist').addEventListener('click', (e) => {
   const tr = e.target.closest('tr[data-date]');
