@@ -342,7 +342,36 @@ function show(view) {
   else window.scrollTo(0, 0);
 }
 
-function rerender() { if (currentView) show(currentView); }
+// Redraw the current tab with fresh data without jumping back to the top
+function rerender() {
+  if (!currentView) return;
+  const y = window.scrollY;
+  show(currentView);
+  if (currentView !== 'coach') window.scrollTo(0, y);
+}
+
+// Remember tab + scroll position so an iOS reload (after switching apps) lands you back in place
+const PLACE_KEY = 'xf-place';
+const MAIN_VIEWS = ['today', 'progress', 'coach', 'plan'];
+function rememberPlace() {
+  if (!MAIN_VIEWS.includes(currentView)) return;
+  try { localStorage.setItem(PLACE_KEY, JSON.stringify({ view: currentView, y: Math.round(window.scrollY), at: Date.now() })); } catch {}
+}
+function savedPlace() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PLACE_KEY));
+    return p && MAIN_VIEWS.includes(p.view) && Date.now() - p.at < 30 * 60e3 ? p : null; // only a recent visit
+  } catch { return null; }
+}
+let placeTimer;
+addEventListener('scroll', () => { clearTimeout(placeTimer); placeTimer = setTimeout(rememberPlace, 250); }, { passive: true });
+addEventListener('pagehide', rememberPlace);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') rememberPlace(); });
+
+// Keep the Apple Health guide open/closed as you left it
+const healthGuide = $('#health-guide');
+try { healthGuide.open = localStorage.getItem('xf-guide-open') === '1'; } catch {}
+healthGuide.addEventListener('toggle', () => { try { localStorage.setItem('xf-guide-open', healthGuide.open ? '1' : '0'); } catch {} });
 
 function renderHeader() {
   $('.brand').textContent = profile?.name ? `Hi ${profile.name}` : 'X-Fitness';
@@ -1287,7 +1316,7 @@ document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState !== 'visible' || !profile || (CLOUD && !user)) return;
   try { ({ days } = await loadAll()); } catch { return; }
   if (viewDate > todayStr()) viewDate = todayStr();
-  if (['today', 'progress', 'plan'].includes(currentView) && !document.activeElement?.matches('input')) rerender();
+  if (['today', 'progress', 'plan'].includes(currentView) && !document.activeElement?.matches('input, textarea')) rerender();
 });
 
 // ---------- boot ----------
@@ -1297,9 +1326,12 @@ async function boot() {
   try { ({ profile, days } = await loadAll()); }
   catch (err) { toast('Could not load data: ' + err.message); return; }
   if (!profile) return show('setup');
+  const synced = !!pendingHealth;
   await applyHealth();
   viewDate = todayStr();
-  show('today');
+  const place = synced ? null : savedPlace(); // a Shortcut sync always lands on Today
+  show(place ? place.view : 'today');
+  if (place && place.view !== 'coach') setTimeout(() => window.scrollTo(0, place.y), 50);
 }
 
 async function init() {
