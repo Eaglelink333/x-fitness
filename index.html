@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1013" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="X-Fitness">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-180.png">
+<link rel="manifest" href="manifest.json">
+<title>X-Fitness</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">X-Fitness</div>
+  <div id="countdown" class="countdown"></div>
+</header>
+
+<main>
+  <!-- Sign in -->
+  <section id="view-auth" class="view" hidden>
+    <div class="card">
+      <h1>Welcome</h1>
+      <p class="muted">Sign in to sync your data between your iPhone and desktop.</p>
+      <form id="auth-form" class="stack">
+        <label>Email<input type="email" id="auth-email" autocomplete="email" required></label>
+        <label>Password<input type="password" id="auth-pass" autocomplete="current-password" minlength="6" required></label>
+        <button type="submit" class="btn primary">Sign in</button>
+        <button type="button" class="btn" id="auth-signup">Create account</button>
+        <p id="auth-msg" class="muted small"></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- Goal setup -->
+  <section id="view-setup" class="view" hidden>
+    <div class="card">
+      <h1>Set your goal</h1>
+      <p class="muted">Your height, age and sex are used to work out your daily calorie target.</p>
+      <form id="setup-form" class="grid2">
+        <label>Starting weight (kg)<input id="s-start" type="number" step="0.1" min="30" max="300" inputmode="decimal" required></label>
+        <label>Goal weight (kg)<input id="s-goal" type="number" step="0.1" min="30" max="300" inputmode="decimal" required></label>
+        <label>Height (cm)<input id="s-height" type="number" min="120" max="230" inputmode="numeric" required></label>
+        <label>Age<input id="s-age" type="number" min="16" max="90" inputmode="numeric" required></label>
+        <label>Sex<select id="s-sex"><option value="m">Male</option><option value="f">Female</option></select></label>
+        <label>Start date<input id="s-startdate" type="date" required></label>
+        <label class="span2">Goal date (wedding)<input id="s-goaldate" type="date" required></label>
+        <button type="submit" class="btn primary span2">Save goal</button>
+        <button type="button" class="btn span2" id="setup-cancel" hidden>Cancel</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Today -->
+  <section id="view-today" class="view" hidden>
+    <div class="datenav">
+      <button class="icon-btn" id="date-prev" aria-label="Previous day">‹</button>
+      <div id="date-label" class="date-label">Today</div>
+      <button class="icon-btn" id="date-next" aria-label="Next day">›</button>
+    </div>
+
+    <div class="card hero">
+      <div class="row between">
+        <span id="status-pill" class="pill"></span>
+        <span id="hero-days" class="muted small"></span>
+      </div>
+      <div class="hero-nums">
+        <div><div class="big" id="lost">0.0</div><div class="muted small">kg lost</div></div>
+        <div><div class="big" id="togo">10.0</div><div class="muted small">kg to go</div></div>
+      </div>
+      <div class="bar"><div id="prog-bar"></div></div>
+      <div id="prog-sub" class="muted small"></div>
+    </div>
+
+    <div class="card">
+      <div class="row between"><h2>Weight</h2><span id="w-delta" class="muted small"></span></div>
+      <form id="w-form" class="row gap">
+        <input id="w-input" type="number" step="0.1" min="30" max="300" inputmode="decimal" placeholder="kg">
+        <button class="btn primary" type="submit">Save</button>
+      </form>
+      <p class="muted small">Weigh yourself first thing in the morning, after the toilet and before you eat.</p>
+    </div>
+
+    <div class="card">
+      <div class="row between"><h2>Food</h2><span id="kcal-total" class="small strong"></span></div>
+      <div class="bar"><div id="kcal-bar"></div></div>
+      <form id="food-form" class="row gap">
+        <input id="food-name" type="text" placeholder="e.g. Chicken wrap" autocomplete="off" enterkeyhint="next">
+        <input id="food-kcal" type="number" min="1" max="5000" inputmode="numeric" placeholder="kcal" class="kcal-in" enterkeyhint="done">
+        <button class="btn primary" type="submit" aria-label="Add food">+</button>
+      </form>
+      <div id="food-chips" class="chips"></div>
+      <ul id="food-list" class="list"></ul>
+    </div>
+
+    <div class="card">
+      <div class="row between"><h2>Activity</h2><span id="steps-goal" class="muted small"></span></div>
+      <div class="bar"><div id="steps-bar"></div></div>
+      <div class="grid2">
+        <label>Steps<input id="steps" type="number" min="0" inputmode="numeric" placeholder="–"></label>
+        <label>Active kcal<input id="active" type="number" min="0" inputmode="numeric" placeholder="–"></label>
+      </div>
+      <p class="muted small">These fill in automatically from Apple Health once the Shortcut is set up (see the Plan tab).</p>
+    </div>
+
+    <div class="card">
+      <h2>Today's advice</h2>
+      <ul id="advice" class="advice"></ul>
+    </div>
+  </section>
+
+  <!-- Progress -->
+  <section id="view-progress" class="view" hidden>
+    <div class="card">
+      <div class="seg" id="chart-seg">
+        <button data-mode="weight" class="on">Weight</button>
+        <button data-mode="kcal">Calories</button>
+        <button data-mode="steps">Steps</button>
+      </div>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+      <div id="chart-note" class="muted small"></div>
+    </div>
+    <div class="card">
+      <h2>Stats</h2>
+      <div id="stats" class="stats"></div>
+    </div>
+    <div class="card">
+      <h2>Last 14 days</h2>
+      <table class="hist"><thead><tr><th>Day</th><th>kg</th><th>kcal</th><th>Steps</th></tr></thead><tbody id="hist"></tbody></table>
+    </div>
+  </section>
+
+  <!-- Plan -->
+  <section id="view-plan" class="view" hidden>
+    <div class="card">
+      <h2>Your daily targets</h2>
+      <div id="targets" class="stats"></div>
+      <p id="plan-note" class="small"></p>
+    </div>
+    <div class="card">
+      <h2>Weekly workout plan</h2>
+      <ul id="week" class="list week"></ul>
+      <p class="muted small">Strength: pick a weight you can lift for the listed reps with 1–2 reps left in the tank. Add a little weight each week. Lifting keeps your muscle, so the weight you lose is fat.</p>
+    </div>
+    <div class="card">
+      <h2>Food rules</h2>
+      <ul id="rules" class="advice"></ul>
+    </div>
+    <div class="card">
+      <details id="health-guide">
+        <summary><h2>Connect Apple Health</h2></summary>
+        <p class="small">Websites can't read Apple Health directly, so a free iPhone <b>Shortcut</b> reads your steps and active calories and sends them here. It takes about 5 minutes to set up once.</p>
+        <ol class="small steps-list">
+          <li>Open the <b>Shortcuts</b> app → <b>+</b> (new shortcut). Name it <b>Sync X-Fitness</b>.</li>
+          <li>Add <b>Find Health Samples</b>. Set Type: <b>Steps</b>, Start Date: <b>is today</b>.</li>
+          <li>Add <b>Calculate Statistics</b>. Set it to <b>Sum</b> of <i>Health Samples</i>.</li>
+          <li>Add <b>Set Variable</b> and name it <code>steps</code>.</li>
+          <li>Repeat steps 2–4 with Type: <b>Active Energy</b>, and name the variable <code>active</code>.</li>
+          <li><i>(Optional, if you use a smart scale)</i> Add <b>Find Health Samples</b> with Type: <b>Weight</b>, Sort by <b>Start Date</b>, <b>Latest First</b>, Limit <b>1</b>. Then add <b>Set Variable</b> and name it <code>weight</code>.</li>
+          <li>Add <b>URL</b> with this text, inserting your variables where shown:<br><code id="shortcut-url" class="url"></code></li>
+          <li>Add <b>Open URLs</b>. Tap ▶ to test it. Safari will open and show "Synced from Apple Health".</li>
+          <li>Automate it: in Shortcuts go to <b>Automation</b> → <b>+</b> → <b>Time of Day</b> (e.g. 8:00 pm, daily) → <b>Run Immediately</b> → choose <b>Sync X-Fitness</b>.</li>
+        </ol>
+        <p class="muted small">The first time, iOS asks for permission to read Health data. Tap Allow. You also need to be signed in to X-Fitness in Safari once.</p>
+      </details>
+    </div>
+    <div class="card">
+      <h2>Settings</h2>
+      <div class="stack">
+        <button class="btn" id="edit-goal">Edit goal &amp; details</button>
+        <button class="btn" id="export">Export data (CSV)</button>
+        <button class="btn" id="signout">Sign out</button>
+      </div>
+      <p id="mode-note" class="muted small"></p>
+    </div>
+  </section>
+</main>
+
+<nav class="tabs" id="tabs" hidden>
+  <button data-view="today" class="on"><span class="ti">●</span>Today</button>
+  <button data-view="progress"><span class="ti">◢</span>Progress</button>
+  <button data-view="plan"><span class="ti">☰</span>Plan</button>
+</nav>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
