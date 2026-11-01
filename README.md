@@ -39,6 +39,23 @@ Websites can't read Apple Health directly, so an iOS Shortcut sends the data in.
 
 The Shortcut opens the app in Safari, so sign in there once as well.
 
+### 5. Photo calorie logging (optional, uses your Claude API key)
+Tap **📷 Snap food, label or barcode** in the Food card:
+- **Meal or drink:** Claude estimates each item, including oils and sauces.
+- **Nutrition label:** Claude reads it and converts kJ to kcal, per serve and per pack.
+- **Barcode:** Claude reads the number and the app looks it up on Open Food Facts.
+
+You always confirm or adjust before anything is added. Each photo costs roughly 1–3 cents on Claude Opus 5.5.
+
+Setup:
+1. Supabase → **Edge Functions** → **Secrets** → add `ANTHROPIC_API_KEY` with your key from console.anthropic.com.
+   The key stays on the server and never goes into this public repo.
+2. Supabase → **Edge Functions** → **Deploy a new function** → **Via Editor**. Name it `food-photo`,
+   paste in [`supabase/functions/food-photo/index.ts`](supabase/functions/food-photo/index.ts), and click **Deploy**.
+   Or with the CLI: `npx supabase functions deploy food-photo --project-ref vksjiczjmhhbyxvzaemf`.
+
+Only signed-in users can use it, so nobody else can spend your API credit.
+
 ## Two people, one app
 Each person creates their own account, so data is kept separate. Choosing **Female** in setup switches to:
 - a female workout plan (glutes/legs + dress-ready shoulders, back and arms, plus Pilates/core)

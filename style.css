@@ -111,6 +111,15 @@ input[type="date"] { min-height: 46px; }
 .bar > div.done { background: var(--good); }
 
 .kcal-in { flex: 0 0 92px; }
+.photo-btn { width: 100%; margin-top: 8px; }
+.photo-panel { margin-top: 10px; padding: 12px; border-radius: 12px; background: var(--soft); }
+.photo-panel p { margin: 0 0 4px; }
+.photo-panel .list li { border-color: var(--line); }
+.photo-panel .kcal-in { width: 92px; background: var(--card); padding: 8px 10px; }
+.pick { flex: 1; flex-direction: row; align-items: center; gap: 10px; color: var(--text); font-size: 15px; font-weight: 500; }
+input[type="checkbox"] { -webkit-appearance: auto; appearance: auto; width: 20px; height: 20px; flex: 0 0 20px; padding: 0; accent-color: var(--accent); }
+.photo-panel .row { margin-top: 10px; }
+.photo-panel .row .btn { flex: 1; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .chip {
   font: inherit; font-size: 13px; border: 1px solid var(--line); background: transparent; color: var(--text);

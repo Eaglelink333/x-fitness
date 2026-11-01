@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>X-Fitness</title>
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <header class="top">
@@ -95,6 +95,9 @@
         <input id="food-kcal" type="number" min="1" max="5000" inputmode="numeric" placeholder="kcal" class="kcal-in" enterkeyhint="done">
         <button class="btn primary" type="submit" aria-label="Add food">+</button>
       </form>
+      <input id="photo-input" type="file" accept="image/*" hidden>
+      <button class="btn photo-btn" id="photo-btn" type="button">📷 Snap food, label or barcode</button>
+      <div id="photo-panel" class="photo-panel" hidden></div>
       <div id="food-chips" class="chips"></div>
       <ul id="food-list" class="list"></ul>
     </div>
@@ -193,7 +196,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<script src="config.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
