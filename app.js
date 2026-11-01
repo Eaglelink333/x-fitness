@@ -402,7 +402,7 @@ try { healthGuide.open = localStorage.getItem('xf-guide-open') === '1'; } catch 
 healthGuide.addEventListener('toggle', () => { try { localStorage.setItem('xf-guide-open', healthGuide.open ? '1' : '0'); } catch {} });
 
 function renderHeader() {
-  $('.brand').textContent = profile?.name ? `Hi ${profile.name}` : 'X-Fitness';
+  $('.brand').innerHTML = profile?.name ? `Hi <b>${esc(profile.name)}</b>` : '<b>X</b>-Fitness';
   if (!profile) { $('#countdown').textContent = ''; return; }
   const left = diffDays(todayStr(), profile.goal_date);
   $('#countdown').textContent = left > 0 ? `${left} days to ${fmtDate(profile.goal_date)}` : left === 0 ? 'Today is the day 💍' : 'Goal date passed';
