@@ -442,6 +442,11 @@ function renderToday() {
   updateFoodButton();
   $('#steps').value = d.steps ?? '';
   $('#active').value = d.active_cal ?? '';
+  // No Watch calories: estimate the burn from steps (~0.0005 kcal per step per kg)
+  const stepKcal = d.steps ? Math.round((d.steps * 0.0005 * currentWeight(viewDate)) / 5) * 5 : 0;
+  $('#steps-kcal').hidden = !stepKcal || d.active_cal != null;
+  $('#steps-kcal').textContent = `≈ ${fmtInt(stepKcal)} kcal burnt from ${fmtInt(d.steps || 0)} steps (estimate)`;
+  $('#active').placeholder = stepKcal ? `≈ ${fmtInt(stepKcal)}` : '–';
   $('#steps-goal').textContent = `Goal ${fmtInt(pl.stepGoal)} steps`;
   setBar($('#steps-bar'), (d.steps || 0) / pl.stepGoal, (d.steps || 0) >= pl.stepGoal ? 'done' : '');
 
@@ -818,6 +823,8 @@ function coachContext() {
       date: d, weekday: DAY_NAMES[parseYmd(d).getDay()], weight_kg: x.weight, kcal: kcalOf(d) || null,
       protein_g: Math.round(m.protein) || null, carbs_g: Math.round(m.carbs) || null, fat_g: Math.round(m.fat) || null,
       foods_logged: x.foods.length, foods_without_macros: m.missing, steps: x.steps, active_kcal: x.active_cal,
+      kcal_from_steps_estimate: x.steps ? Math.round(x.steps * 0.0005 * pl.w) : null, // used when no Watch data
+
       workouts: x.activities.map((a) => `${actLabel(a)} ${a.mins} min (~${a.kcal} kcal${a.src === 'watch' ? ', Apple Watch' : ''})`),
     });
   }
