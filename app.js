@@ -307,7 +307,7 @@ function renderToday() {
   $('#food-chips').innerHTML = recentFoods().map((f, i) =>
     `<button class="chip" data-i="${i}">${esc(f.name)} <b>${fmtInt(f.kcal)}</b></button>`).join('');
 
-  $('#photo-btn').hidden = !CLOUD; // needs the Supabase Edge Function
+  $('#photo-card').hidden = !CLOUD; // needs the Supabase Edge Function
   $('#steps').value = d.steps ?? '';
   $('#active').value = d.active_cal ?? '';
   $('#steps-goal').textContent = `Goal ${fmtInt(pl.stepGoal)} steps`;
