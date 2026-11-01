@@ -581,7 +581,7 @@ function renderPlan() {
   $('#rules').innerHTML = (isF() ? [...FOOD_RULES, ...FOOD_RULES_F] : FOOD_RULES).map((a) => `<li><span class="i">${a.icon}</span><span>${esc(a.t)}</span></li>`).join('');
 
   const base = location.origin + location.pathname;
-  $('#shortcut-url').textContent = `${base}?steps=[steps]&active=[active]&weight=[weight]&workouts=[workouts]`;
+  $('#shortcut-url').textContent = `${base}?steps=[steps]&active=[active]&exercise=[exercise]&weight=[weight]`;
   $('#signout').hidden = !CLOUD;
   $('#mode-note').textContent = CLOUD ? `Signed in as ${user?.email || ''}. Data syncs across devices.` : 'Local mode: data is saved in this browser only. Add your Supabase keys in config.js to sync.';
 }
@@ -910,7 +910,7 @@ $('#chat-clear').addEventListener('click', () => { chatLog = []; saveChat(); ren
 // ---------- Apple Health (via iOS Shortcut URL params) ----------
 function readHealthParams() {
   const q = new URLSearchParams(location.search);
-  if (!['steps', 'active', 'weight', 'workouts'].some((k) => q.has(k))) return null;
+  if (!['steps', 'active', 'weight', 'workouts', 'exercise'].some((k) => q.has(k))) return null;
   const parse = (v, decimal) => {
     if (v == null || v === '') return null;
     const s = decimal ? String(v).replace(',', '.') : String(v).replace(/,/g, '');
@@ -919,7 +919,7 @@ function readHealthParams() {
   };
   const date = /^\d{4}-\d{2}-\d{2}$/.test(q.get('date') || '') ? q.get('date') : todayStr();
   history.replaceState(null, '', location.pathname);
-  return { date, steps: parse(q.get('steps')), active: parse(q.get('active')), weight: parse(q.get('weight'), true), workouts: q.get('workouts') };
+  return { date, steps: parse(q.get('steps')), active: parse(q.get('active')), weight: parse(q.get('weight'), true), workouts: q.get('workouts'), exercise: parse(q.get('exercise')) };
 }
 
 // Apple workout names → our activity types (for icons and estimates)
@@ -963,11 +963,17 @@ async function applyHealth() {
   if (h.active != null) { d.active_cal = Math.round(h.active); bits.push(`${fmtInt(d.active_cal)} active kcal`); }
   // Skip readings far from your recent average (e.g. someone else used the scale)
   if (h.weight && Math.abs(h.weight - currentWeight(h.date)) <= 3 && !d.weight) { d.weight = Math.round(h.weight * 10) / 10; bits.push(`${fmt1(d.weight)} kg`); }
-  if (h.workouts != null) {
+  if (h.workouts != null || h.exercise != null) {
     // Replace earlier Watch syncs for the day (the Shortcut may run several times); keep manual entries
-    const synced = parseWorkouts(h.workouts, currentWeight(h.date));
+    let synced = parseWorkouts(h.workouts, currentWeight(h.date));
+    // No individual workouts available (iOS often hides them from Shortcuts): use the Exercise ring minutes
+    const mins = Math.round(h.exercise || 0);
+    if (!synced.length && mins > 0 && mins <= 600) {
+      synced = [{ type: 'other', mins, kcal: burnFor('other', mins, currentWeight(h.date)), name: 'Apple Watch exercise', src: 'watch' }];
+    }
     d.activities = d.activities.filter((a) => a.src !== 'watch').concat(synced);
-    if (synced.length) bits.push(`${synced.length} workout${synced.length > 1 ? 's' : ''}`);
+    if (synced[0]?.name === 'Apple Watch exercise') bits.push(`${synced[0].mins} exercise min`);
+    else if (synced.length) bits.push(`${synced.length} workout${synced.length > 1 ? 's' : ''}`);
   }
   await saveDay(h.date);
   if (bits.length) toast('Synced from Apple Health: ' + bits.join(', '));

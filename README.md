@@ -34,10 +34,11 @@ Websites can't read Apple Health directly, so an iOS Shortcut sends the data in.
 2. **Find Health Samples** (Steps, today) → **Calculate Statistics** (Sum) → **Set Variable** `steps`.
 3. Same again for **Active Energy** → `active`.
 4. *(Optional)* Latest **Weight** sample → `weight`.
-5. *(Optional, Apple Watch)* **Find Health Samples** (Workouts, today) → **Repeat with Each** → **Text** `[Name]~[Duration]~[Total Energy]`
-   → after the repeat **Combine Text** (new lines) → **URL Encode** → `workouts`. Calories are optional; the app estimates them if missing.
-   Re-running the Shortcut replaces that day's Watch workouts rather than duplicating them.
-6. **URL** `https://eaglelink333.github.io/x-fitness/?steps=[steps]&active=[active]&weight=[weight]&workouts=[workouts]` → **Open URLs**.
+5. *(Apple Watch)* Same again for **Exercise Minutes** → `exercise`. It shows as "Apple Watch exercise" in Activity.
+   *(Advanced)* Shortcuts usually can't list individual workouts. With a helper app such as Toolbox Pro (**Get Workouts**),
+   send `workouts` as lines of `Name~Duration~Calories` and add `&workouts=[workouts]` to the URL; they replace the exercise entry.
+   Re-running the Shortcut replaces that day's Watch entries rather than duplicating them.
+6. **URL** `https://eaglelink333.github.io/x-fitness/?steps=[steps]&active=[active]&exercise=[exercise]&weight=[weight]` → **Open URLs**.
 7. Automation → Time of Day (e.g. 12 pm, 5 pm and 8 pm daily) → Run Immediately → Sync X-Fitness.
 
 The Shortcut opens the app in Safari, so sign in there once as well.
