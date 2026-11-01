@@ -454,8 +454,9 @@ function renderToday() {
   const eaten = kcalOf(viewDate);
   $('#kcal-total').textContent = `${fmtInt(eaten)} / ${fmtInt(pl.kcal)} kcal`;
   setBar($('#kcal-bar'), eaten / pl.kcal, eaten > pl.kcal ? 'over' : '');
-  $('#food-list').innerHTML = d.foods.map((f, i) =>
-    `<li><span>${esc(f.name)}<span class="mac">${macroText(f)}</span></span><span class="row gap"><span class="muted">${fmtInt(f.kcal)}</span><button class="x" data-i="${i}" aria-label="Remove">×</button></span></li>`).join('');
+  if (editingFood && editingFood.date !== viewDate) editingFood = null;
+  $('#food-list').innerHTML = d.foods.map((f, i) => editingFood?.i === i ? foodEditRow(f, i) :
+    `<li><button class="food-main" type="button" data-edit="${i}" aria-label="Edit ${esc(f.name)}"><span>${esc(f.name)}<span class="mac">${macroText(f)}</span></span><span class="muted">${fmtInt(f.kcal)}</span></button><button class="x" data-i="${i}" aria-label="Remove">×</button></li>`).join('');
   $('#food-chips').innerHTML = recentFoods().map((f, i) =>
     `<button class="chip" data-i="${i}">${esc(f.name)} <b>${fmtInt(f.kcal)}</b></button>`).join('');
 
@@ -500,6 +501,20 @@ function renderToday() {
 
   renderAdvice();
   refreshAdvice();
+}
+
+// Tap a logged food to change its name, calories or macros
+let editingFood = null;
+function foodEditRow(f, i) {
+  const m = (k, label) => `<label>${label}<input name="${k}" type="number" min="0" max="1000" inputmode="decimal" value="${f[k] != null ? Math.round(f[k]) : ''}" placeholder="–"></label>`;
+  return `<li class="food-edit"><form data-i="${i}" class="stack">
+    <input name="name" type="text" value="${esc(f.name)}" maxlength="60" required aria-label="Food name" enterkeyhint="next">
+    <div class="grid4">
+      <label>kcal<input name="kcal" type="number" min="0" max="5000" inputmode="numeric" value="${Math.round(f.kcal)}" required></label>
+      ${m('protein', 'Protein g')}${m('carbs', 'Carbs g')}${m('fat', 'Fat g')}
+    </div>
+    <div class="row gap"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" data-cancel>Cancel</button></div>
+  </form></li>`;
 }
 
 let recentCache = [];
@@ -1401,9 +1416,30 @@ $('#food-chips').addEventListener('click', (e) => {
   if (b) addFood(recentCache[+b.dataset.i]);
 });
 $('#food-list').addEventListener('click', async (e) => {
+  const ed = e.target.closest('[data-edit]');
+  if (ed) { editingFood = { date: viewDate, i: +ed.dataset.edit }; renderToday(); $('#food-list input[name=name]')?.focus(); return; }
+  if (e.target.closest('[data-cancel]')) { editingFood = null; renderToday(); return; }
   const b = e.target.closest('.x');
   if (!b) return;
+  editingFood = null;
   ensureDay(viewDate).foods.splice(+b.dataset.i, 1);
+  renderToday();
+  await saveDay(viewDate);
+});
+$('#food-list').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target, i = +form.dataset.i, foods = ensureDay(viewDate).foods, old = foods[i];
+  if (!old) return;
+  const v = (k) => form.elements[k].value.trim();
+  const kcal = numOrNull(v('kcal'));
+  if (kcal == null || kcal < 0) return toast('Enter the calories');
+  const item = { name: v('name').slice(0, 60) || old.name, kcal: Math.round(kcal) };
+  const typed = MACROS.map((k) => numOrNull(v(k)));
+  const macrosEdited = MACROS.some((k, j) => typed[j] !== (old[k] != null ? Math.round(old[k]) : null));
+  if (macrosEdited) MACROS.forEach((k, j) => { item[k] = Math.round(typed[j] ?? 0); }); // blanks count as 0 so all three always exist
+  else if (hasMacros(old)) Object.assign(item, foodItem(old, kcal), { name: item.name }); // only calories changed: macros scale with them
+  foods[i] = item;
+  editingFood = null;
   renderToday();
   await saveDay(viewDate);
 });

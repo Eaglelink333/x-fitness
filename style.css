@@ -390,3 +390,17 @@ code.url { display: block; margin-top: 6px; padding: 8px; word-break: break-all;
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* Logged foods: the row is a button that opens an inline editor */
+.list li:has(.food-main) { padding: 0; }
+.food-main {
+  flex: 1; min-width: 0; display: flex; justify-content: space-between; align-items: center; gap: 8px; text-align: left;
+  font: inherit; color: inherit; background: none; border: 0; padding: 11px 0; cursor: pointer; min-height: 48px;
+}
+.food-main > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+@media (hover: hover) { .food-main:hover > span:first-child { color: var(--accent); } }
+.list .x { min-width: 44px; min-height: 44px; }
+.list li.food-edit { display: block; padding: 12px 0; }
+.grid4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.grid4 input { padding: 10px 8px; }
+.food-edit .btn { flex: 1; }
