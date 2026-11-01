@@ -17,7 +17,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,600&family=Manrope:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="style.css?v=28">
+<link rel="stylesheet" href="style.css?v=29">
 <script>
   // Apply the saved theme before first paint so there's no flash
   try { const t = localStorage.getItem('xf-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
@@ -116,12 +116,12 @@
     </div>
 
     <div class="card">
-      <div class="row between"><h2>Weight</h2><span id="w-delta" class="muted small"></span></div>
+      <div class="row between"><div class="title-row"><h2>Weight</h2><button class="info" type="button" data-info="n-weight" aria-expanded="false" aria-label="How to weigh yourself">i</button></div><span id="w-delta" class="muted small"></span></div>
+      <p id="n-weight" class="info-note" hidden>Weigh yourself first thing in the morning, after the toilet and before you eat.</p>
       <form id="w-form" class="row gap">
         <input id="w-input" type="number" step="0.1" min="30" max="300" inputmode="decimal" placeholder="kg">
         <button class="btn primary" type="submit">Save</button>
       </form>
-      <p class="muted small">Weigh yourself first thing in the morning, after the toilet and before you eat.</p>
     </div>
 
     <div class="card" id="photo-card">
@@ -137,16 +137,17 @@
     </div>
 
     <div class="card">
-      <div class="row between"><h2>Food</h2><span id="kcal-total" class="small strong"></span></div>
+      <div class="row between"><div class="title-row"><h2>Food</h2><button class="info" id="food-info" type="button" data-info="food-hint" aria-expanded="false" aria-label="How food logging works">i</button></div><span id="kcal-total" class="small strong"></span></div>
+      <p id="food-hint" class="info-note" hidden>Type what you ate and the amount, e.g. "200g chicken, 1 cup rice". Leave kcal blank and we will estimate the calories and macros. Tap a logged food to edit it, or ☆ to keep it as a favourite.</p>
       <div class="bar"><div id="kcal-bar"></div></div>
       <form id="food-form" class="stack">
         <input id="food-name" type="text" placeholder="What did you eat? e.g. 200g chicken, 1 cup rice" autocomplete="off" enterkeyhint="go">
         <div class="row gap">
-          <input id="food-kcal" type="number" min="1" max="5000" inputmode="numeric" placeholder="kcal (if you know it)" enterkeyhint="done">
+          <input id="food-kcal" type="number" min="1" max="5000" inputmode="numeric" placeholder="kcal (optional)" enterkeyhint="done">
           <button class="btn primary food-submit" id="food-submit" type="submit">Add</button>
         </div>
       </form>
-      <p id="food-hint" class="muted small">Leave kcal blank and we will estimate the calories and macros.</p>
+
       <div id="est-panel" class="photo-panel" hidden></div>
       <div id="food-chips" class="chips"></div>
       <button class="text-btn" id="copy-yday" type="button" hidden></button>
@@ -160,7 +161,8 @@
     </div>
 
     <div class="card">
-      <div class="row between"><h2>Activity</h2><span id="steps-goal" class="muted small"></span></div>
+      <div class="row between"><div class="title-row"><h2>Activity</h2><button class="info" type="button" data-info="n-activity" aria-expanded="false" aria-label="How activity is tracked">i</button></div><span id="steps-goal" class="muted small"></span></div>
+      <p id="n-activity" class="info-note" hidden>Steps and active kcal fill in automatically from Apple Health once the Shortcut is set up (see the Plan tab). Active kcal comes from an Apple Watch. Workouts you log count towards your move goal as the steps that burn the same calories.</p>
       <div class="bar"><div id="steps-bar"></div></div>
       <p id="move-line" class="small move-line"></p>
       <div class="grid2">
@@ -168,7 +170,6 @@
         <label>Active kcal<input id="active" type="number" min="0" inputmode="numeric" placeholder="–"></label>
       </div>
       <p id="steps-kcal" class="small strong" hidden></p>
-      <p class="muted small">These fill in automatically from Apple Health once the Shortcut is set up (see the Plan tab). Active kcal comes from an Apple Watch.</p>
 
       <div class="row between act-head"><h3>Workouts</h3><span id="act-total" class="small strong"></span></div>
       <form id="act-form" class="row gap">
@@ -181,10 +182,10 @@
     </div>
 
     <div class="card" id="net-card" hidden>
-      <div class="row between"><h2>Net calories</h2><span id="net-num" class="net-num"></span></div>
+      <div class="row between"><div class="title-row"><h2>Net calories</h2><button class="info" type="button" data-info="n-net" aria-expanded="false" aria-label="How net calories are worked out">i</button></div><span id="net-num" class="net-num"></span></div>
+      <p id="n-net" class="info-note" hidden>An estimate: food eaten minus resting burn, steps (or Watch active kcal) and workouts. Walks and runs are already in your steps, so they aren't added twice.</p>
       <p id="net-sub" class="muted small"></p>
       <ul id="net-rows" class="list"></ul>
-      <p class="muted small">Estimate: food eaten minus resting burn, steps (or Watch active kcal) and workouts. Walks and runs are already in your steps.</p>
     </div>
 
     <div class="card">
@@ -204,9 +205,10 @@
         <button data-mode="kcal">Calories</button>
         <button data-mode="steps">Steps</button>
       </div>
-      <div class="chart-head"><div id="chart-big" class="chart-big"></div><div id="chart-sub" class="muted small"></div></div>
+      <div class="chart-head"><div id="chart-big" class="chart-big"></div><div id="chart-sub" class="muted small"></div><button class="info chart-info" type="button" data-info="chart-note" aria-expanded="false" aria-label="How to read this chart">i</button></div>
+      <div id="chart-note" class="info-note" hidden></div>
       <div class="chart-wrap"><canvas id="chart"></canvas></div>
-      <div id="chart-note" class="muted small"></div>
+
     </div>
     <div class="card">
       <h2>Stats</h2>
@@ -219,8 +221,8 @@
       <div class="stack" style="margin-top:12px"><button class="btn primary" id="weekly-go" type="button">Get this week's check-in</button></div>
     </div>
     <div class="card">
-      <h2>Measurements</h2>
-      <p class="muted small">Once a week, same time of day. The tape often moves when the scale doesn't.</p>
+      <div class="title-row"><h2>Measurements</h2><button class="info" type="button" data-info="n-measure" aria-expanded="false" aria-label="About measurements">i</button></div>
+      <p id="n-measure" class="info-note" hidden>Once a week, same time of day. The tape often moves when the scale doesn't. Photos are private to your account: only you can see them.</p>
       <form id="measure-form" class="stack">
         <div class="grid4">
           <label>Waist<input name="waist" type="number" step="0.1" min="10" max="250" inputmode="decimal"></label>
@@ -235,7 +237,7 @@
         <div class="row between act-head"><h3>Progress photos</h3><button class="text-btn" id="pphoto-btn" type="button">+ Add photo</button></div>
         <input id="pphoto-input" type="file" accept="image/*" hidden>
         <div id="pphotos" class="pphotos"></div>
-        <p class="muted small">Private to your account. Only you can see them.</p>
+
       </div>
     </div>
     <div class="card">
@@ -268,23 +270,24 @@
   <section id="view-plan" class="view" hidden>
     <div class="card" id="ai-plan"></div>
     <div class="card" id="ai-meals" hidden>
-      <h2>Meal ideas</h2>
-      <p class="muted small">Built for your targets. Tap + to add one to today.</p>
+      <div class="row between"><h2>Meal ideas</h2><span class="muted small">Tap + to add to today</span></div>
       <div id="meal-ideas"></div>
     </div>
     <div class="card">
-      <h2>Your daily targets</h2>
+      <div class="title-row"><h2>Your daily targets</h2><button class="info" type="button" data-info="plan-note" aria-expanded="false" aria-label="How your targets are worked out">i</button></div>
+      <div id="plan-note" class="info-note" hidden></div>
       <div id="targets" class="stats"></div>
-      <p id="plan-note" class="small"></p>
     </div>
     <div class="card">
-      <h2>Weekly workout plan</h2>
+      <div class="title-row"><h2>Weekly workout plan</h2><button class="info" type="button" data-info="week-note" aria-expanded="false" aria-label="Training tips">i</button></div>
+      <div id="week-note" class="info-note" hidden></div>
       <ul id="week" class="list week"></ul>
-      <p id="week-note" class="muted small"></p>
     </div>
     <div class="card">
-      <h2>Food rules</h2>
-      <ul id="rules" class="advice"></ul>
+      <details id="rules-guide">
+        <summary><h2>Food rules</h2></summary>
+        <ul id="rules" class="advice" style="margin-top:12px"></ul>
+      </details>
     </div>
     <div class="card">
       <details id="health-guide">
@@ -366,7 +369,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <!-- Bump ?v= on each release so phones don't keep a cached copy -->
-<script src="config.js?v=28"></script>
-<script src="app.js?v=28"></script>
+<script src="config.js?v=29"></script>
+<script src="app.js?v=29"></script>
 </body>
 </html>

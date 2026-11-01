@@ -522,7 +522,7 @@ function renderToday() {
   $('#macro-note').textContent = mm.missing ? `${mm.missing} item${mm.missing > 1 ? 's' : ''} without macros` : '';
 
   $('#photo-card').hidden = !CLOUD; // needs the Supabase Edge Function
-  $('#food-hint').hidden = !CLOUD;
+  $('#food-info').hidden = !CLOUD;
   updateFoodButton();
   $('#steps').value = d.steps ?? '';
   $('#active').value = d.active_cal ?? '';
@@ -894,6 +894,16 @@ $('#pphoto-view').addEventListener('click', async (e) => {
   await loadPhotos();
 });
 
+// ⓘ buttons show or hide the explanation that belongs to their card
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.info');
+  if (!b) return;
+  const note = document.getElementById(b.dataset.info);
+  note.hidden = !note.hidden;
+  b.setAttribute('aria-expanded', String(!note.hidden));
+  b.classList.toggle('on', !note.hidden);
+});
+
 function renderPlan() {
   const p = profile, pl = plan();
   $('#targets').innerHTML = [
@@ -952,7 +962,8 @@ function renderAiPlan() {
   }
   card.innerHTML = `<h2>✨ Your plan</h2>
     <p class="plan-summary">${esc(ai.summary)}</p>
-    <ul class="advice">${ai.tips.map((t) => `<li><span class="i">✨</span><span>${esc(t)}</span></li>`).join('')}</ul>
+    <details class="tips"><summary class="strong">Your tips (${ai.tips.length})</summary>
+      <ul class="advice" style="margin-top:10px">${ai.tips.map((t) => `<li><span class="i">✨</span><span>${esc(t)}</span></li>`).join('')}</ul></details>
     <p class="muted small">Built ${ai.created ? fmtDate(ai.created) : ''} from your answers. Your weekly workouts below follow this plan.</p>
     <div class="stack" style="margin-top:10px"><button class="btn" data-act="quiz">Redo questionnaire</button></div>`;
 
