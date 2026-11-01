@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" href="icon-180.png">
 <link rel="manifest" href="manifest.json">
 <title>X-Fitness</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
 <header class="top">
@@ -191,7 +191,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js"></script>
-<script src="app.js"></script>
+<!-- Bump ?v= on each release so phones don't keep a cached copy -->
+<script src="config.js?v=2"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>
