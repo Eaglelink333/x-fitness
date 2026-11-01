@@ -136,9 +136,9 @@ async function coachReply(messages: unknown, context: unknown) {
     const reply = response.content.filter((b) => b.type === "text").map((b) => (b.type === "text" ? b.text : "")).join("\n").trim();
     return reply ? json({ reply }) : json({ error: "No reply came back. Try again." }, 502);
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) return json({ error: "Claude API key is missing or invalid (check Supabase secrets)." }, 500);
+    if (err instanceof Anthropic.AuthenticationError) return json({ error: "The AI key is missing or invalid (check Supabase secrets)." }, 500);
     if (err instanceof Anthropic.RateLimitError) return json({ error: "Busy right now. Try again in a moment." }, 429);
-    if (err instanceof Anthropic.APIError) return json({ error: `Claude API error (${err.status}).` }, 502);
+    if (err instanceof Anthropic.APIError) return json({ error: `AI service error (${err.status}).` }, 502);
     console.error(err);
     return json({ error: "Something went wrong. Try again." }, 500);
   }
@@ -204,7 +204,7 @@ async function dailyAdvice(context: unknown, task = DAILY_TASK) {
     if (!text || text.type !== "text") return json({ error: "No advice came back." }, 502);
     return json(JSON.parse(text.text));
   } catch (err) {
-    if (err instanceof Anthropic.APIError) return json({ error: `Claude API error (${err.status}).` }, 502);
+    if (err instanceof Anthropic.APIError) return json({ error: `AI service error (${err.status}).` }, 502);
     console.error(err);
     return json({ error: "Something went wrong." }, 500);
   }
@@ -314,7 +314,7 @@ Deno.serve(async (req) => {
   // Optional allowlist (Supabase secret ALLOWED_EMAILS, comma separated) so only you can spend the API credit
   const allowed = (Deno.env.get("ALLOWED_EMAILS") ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   if (allowed.length && !allowed.includes((user.email ?? "").toLowerCase())) {
-    return json({ error: "This account isn't set up for the Claude features." }, 403);
+    return json({ error: "This account isn't set up for the AI features." }, 403);
   }
 
   if (body.mode === "plan") return buildPlan(body.answers, body.profile);
@@ -354,9 +354,9 @@ Deno.serve(async (req) => {
     if (!text || text.type !== "text") return json({ error: "No result. Try again." }, 502);
     return json(JSON.parse(text.text));
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) return json({ error: "Claude API key is missing or invalid (check Supabase secrets)." }, 500);
+    if (err instanceof Anthropic.AuthenticationError) return json({ error: "The AI key is missing or invalid (check Supabase secrets)." }, 500);
     if (err instanceof Anthropic.RateLimitError) return json({ error: "Busy right now. Try again in a moment." }, 429);
-    if (err instanceof Anthropic.APIError) return json({ error: `Claude API error (${err.status}).` }, 502);
+    if (err instanceof Anthropic.APIError) return json({ error: `AI service error (${err.status}).` }, 502);
     console.error(err);
     return json({ error: "Something went wrong. Try again." }, 500);
   }
@@ -380,9 +380,9 @@ async function buildPlan(answers: unknown, profile: unknown) {
     if (!text || text.type !== "text") return json({ error: "No plan came back. Try again." }, 502);
     return json(JSON.parse(text.text));
   } catch (err) {
-    if (err instanceof Anthropic.AuthenticationError) return json({ error: "Claude API key is missing or invalid (check Supabase secrets)." }, 500);
+    if (err instanceof Anthropic.AuthenticationError) return json({ error: "The AI key is missing or invalid (check Supabase secrets)." }, 500);
     if (err instanceof Anthropic.RateLimitError) return json({ error: "Busy right now. Try again in a moment." }, 429);
-    if (err instanceof Anthropic.APIError) return json({ error: `Claude API error (${err.status}).` }, 502);
+    if (err instanceof Anthropic.APIError) return json({ error: `AI service error (${err.status}).` }, 502);
     console.error(err);
     return json({ error: "Something went wrong. Try again." }, 500);
   }

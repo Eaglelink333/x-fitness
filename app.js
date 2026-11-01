@@ -945,7 +945,7 @@ function renderAiPlan() {
   card.hidden = !CLOUD && !ai;
   if (!ai) {
     card.innerHTML = `<h2>✨ Personalise your plan</h2>
-      <p class="small">Answer a few quick questions and Claude builds your workouts, meals and tips around you: your schedule, what you enjoy, how you eat and what usually gets in the way.</p>
+      <p class="small">Answer a few quick questions and we build your workouts, meals and tips around you: your schedule, what you enjoy, how you eat and what usually gets in the way.</p>
       <div class="stack" style="margin-top:12px"><button class="btn primary" data-act="quiz">Start the questionnaire</button></div>`;
     $('#ai-meals').hidden = true;
     return;
@@ -991,7 +991,7 @@ function quizQuestions() {
     { id: 'cooking', q: 'How much do you like to cook?', opts: ['Love cooking', 'Simple meals', 'As little as possible'] },
     { id: 'challenges', q: 'What usually gets in the way?', multi: true, opts: ['Snacking / sweet tooth', 'Alcohol & social events', 'Eating out / takeaway', 'Late-night eating', 'Busy, no time', 'Stress eating', 'Skipping meals then overeating', 'Motivation'] },
     { id: 'foods', q: 'Foods you love or can\'t stand?', text: true, ph: 'e.g. love Mexican and sushi, hate mushrooms' },
-    { id: 'notes', q: 'Anything else Claude should know?', text: true, ph: 'e.g. shift work, final fitting on 20 Dec' },
+    { id: 'notes', q: 'Anything else we should know?', text: true, ph: 'e.g. shift work, final fitting on 20 Dec' },
   ];
 }
 
@@ -1036,7 +1036,7 @@ $('#quiz-go').addEventListener('click', async () => {
     daily_targets: { kcal: pl.kcal, protein_g: pl.protein, carbs_g: mt.carbs, fat_g: mt.fat, steps: pl.stepGoal },
   };
   $('#quiz-go').disabled = true;
-  $('#quiz-msg').textContent = '✨ Claude is building your plan. This takes about 30–60 seconds…';
+  $('#quiz-msg').textContent = '✨ Building your plan. This takes about 30–60 seconds…';
   try {
     const { data, error } = await sb.functions.invoke('food-photo', { body: { mode: 'plan', answers, profile: summary } });
     if (error) throw new Error(await fnError(error));
