@@ -195,15 +195,48 @@ const MACROS = ['protein', 'carbs', 'fat'];
 const hasMacros = (f) => f.protein != null;
 const macroText = (f) => (hasMacros(f) ? `P ${Math.round(f.protein)} · C ${Math.round(f.carbs)} · F ${Math.round(f.fat)} g` : '');
 
-// Normalises a food entry; macros scale with kcal if you edited the calories
-function foodItem(it, kcal = it.kcal) {
+// Normalises a food entry; macros scale with kcal if you edited the calories.
+// kcal and macros are for the whole amount; qty (only stored when not 1) is how many servings that is.
+function foodItem(it, kcal = it.kcal, qty = 1) {
   const out = { name: String(it.name || 'Food').slice(0, 60), kcal: Math.round(kcal) };
   if (hasMacros(it) && it.kcal > 0) {
     const r = kcal / it.kcal;
     for (const m of MACROS) out[m] = Math.round((+it[m] || 0) * r);
   }
+  if (qty !== 1) out.qty = qty;
   return out;
 }
+// One serving of a logged food (what favourites, recents and chips use)
+const unitOf = (f) => (f.qty > 0 && f.qty !== 1 ? foodItem(f, f.kcal / f.qty) : foodItem(f));
+const clampQty = (q) => Math.min(50, Math.max(0.5, Math.round((+q || 1) * 2) / 2));
+
+// − 1 + stepper; any input marked .scales in the same row keeps its per-serving value and follows the quantity
+const qtyStep = (q, attrs = '') => `<span class="qty-step"><button type="button" data-qd="-1" aria-label="Fewer">−</button><input class="qty-in" type="number" min="0.5" max="50" step="0.5" inputmode="decimal" value="${q}" data-prev="${q}" aria-label="Quantity" ${attrs}><button type="button" data-qd="1" aria-label="More">+</button></span>`;
+function setQty(inp, q) {
+  const old = +inp.dataset.prev || 1;
+  q = clampQty(q);
+  inp.value = q; inp.dataset.prev = q;
+  inp.closest('li').querySelectorAll('.scales').forEach((el) => {
+    if (el.value === '') return;
+    const unit = el.dataset.unit != null ? +el.dataset.unit : +el.value / old;
+    el.dataset.unit = unit;
+    el.value = Math.round(unit * q);
+  });
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-qd]');
+  if (!b) return;
+  const inp = b.parentElement.querySelector('.qty-in'), q = +inp.value || 1;
+  setQty(inp, b.dataset.qd === '1' ? Math.floor(q) + 1 : q > 1 ? Math.ceil(q) - 1 : 0.5);
+});
+document.addEventListener('change', (e) => { if (e.target.classList?.contains('qty-in')) setQty(e.target, e.target.value); });
+// Typing calories or macros by hand resets their per-serving value for later steps
+document.addEventListener('input', (e) => {
+  const el = e.target;
+  if (!el.classList?.contains('scales')) return;
+  const q = +el.closest('li').querySelector('.qty-in')?.value || 1;
+  el.dataset.unit = +el.value / q;
+});
 
 function macroTotals(date) {
   const t = { protein: 0, carbs: 0, fat: 0, missing: 0 };
@@ -506,7 +539,7 @@ function renderToday() {
   setBar($('#kcal-bar'), eaten / pl.kcal, eaten > pl.kcal ? 'over' : '');
   if (editingFood && editingFood.date !== viewDate) editingFood = null;
   $('#food-list').innerHTML = d.foods.map((f, i) => editingFood?.i === i ? foodEditRow(f, i) :
-    `<li><button class="food-main" type="button" data-edit="${i}" aria-label="Edit ${esc(f.name)}"><span>${esc(f.name)}<span class="mac">${macroText(f)}</span></span><span class="muted">${fmtInt(f.kcal)}</span></button><button class="x" data-i="${i}" aria-label="Remove">×</button></li>`).join('');
+    `<li><button class="food-main" type="button" data-edit="${i}" aria-label="Edit ${esc(f.name)}"><span>${f.qty ? `<b class="qty-tag">${f.qty}×</b> ` : ''}${esc(f.name)}<span class="mac">${macroText(f)}</span></span><span class="muted">${fmtInt(f.kcal)}</span></button><button class="x" data-i="${i}" aria-label="Remove">×</button></li>`).join('');
   // Favourites first, then recent foods you haven't starred
   const favs = profile.favorites || [], favKeys = new Set(favs.map((f) => f.name.toLowerCase()));
   chipFoods = [...favs.map((f) => ({ ...f, fav: true })), ...recentFoods().filter((f) => !favKeys.has(f.name.toLowerCase()))].slice(0, 14);
@@ -563,11 +596,12 @@ function renderToday() {
 // Tap a logged food to change its name, calories or macros
 let editingFood = null;
 function foodEditRow(f, i) {
-  const m = (k, label) => `<label>${label}<input name="${k}" type="number" min="0" max="1000" inputmode="decimal" value="${f[k] != null ? Math.round(f[k]) : ''}" placeholder="–"></label>`;
+  const m = (k, label) => `<label>${label}<input class="scales" name="${k}" type="number" min="0" max="5000" inputmode="decimal" value="${f[k] != null ? Math.round(f[k]) : ''}" placeholder="–"></label>`;
   return `<li class="food-edit"><form data-i="${i}" class="stack">
     <input name="name" type="text" value="${esc(f.name)}" maxlength="60" required aria-label="Food name" enterkeyhint="next">
+    <div class="qty-row"><span>How many</span>${qtyStep(f.qty || 1, 'name="qty"')}</div>
     <div class="grid4">
-      <label>kcal<input name="kcal" type="number" min="0" max="5000" inputmode="numeric" value="${Math.round(f.kcal)}" required></label>
+      <label>kcal<input class="scales" name="kcal" type="number" min="0" max="5000" inputmode="numeric" value="${Math.round(f.kcal)}" required></label>
       ${m('protein', 'Protein g')}${m('carbs', 'Carbs g')}${m('fat', 'Fat g')}
     </div>
     <button class="text-btn fav-btn" type="button" data-fav="${i}">${isFav(f) ? '★ In favourites (tap to remove)' : '☆ Add to favourites'}</button>
@@ -603,7 +637,7 @@ let chipFoods = [];
 const isFav = (f) => (profile.favorites || []).some((x) => x.name.toLowerCase() === f.name.toLowerCase());
 async function toggleFavourite(f) {
   const favs = profile.favorites || [];
-  profile.favorites = isFav(f) ? favs.filter((x) => x.name.toLowerCase() !== f.name.toLowerCase()) : [foodItem(f), ...favs].slice(0, 12);
+  profile.favorites = isFav(f) ? favs.filter((x) => x.name.toLowerCase() !== f.name.toLowerCase()) : [unitOf(f), ...favs].slice(0, 12);
   toast(isFav(f) ? `★ ${f.name} added to favourites` : `Removed ${f.name} from favourites`);
   try { await saveProfile(); } catch { toast("Couldn't save favourites. Check your connection."); }
 }
@@ -615,7 +649,7 @@ function recentFoods() {
     for (const f of [...days[date].foods].reverse()) {
       const k = f.name.toLowerCase();
       if (seen.has(k) || f.name === 'Food') continue;
-      seen.add(k); out.push(f);
+      seen.add(k); out.push(unitOf(f));
       if (out.length >= 8) return (recentCache = out);
     }
   }
@@ -1395,7 +1429,7 @@ function coachContext() {
     daily_targets: { kcal: pl.kcal, protein_g: pl.protein, carbs_g: mt.carbs, fat_g: mt.fat, move_goal_steps: pl.stepGoal },
     move_goal_explained: 'Move goal = steps + non-walking workouts converted to the steps that burn the same calories (gym, tennis, swim etc. count; walks/runs are already in steps).',
     maintenance_kcal_estimate: Math.round(pl.tdee),
-    todays_food: today.foods.map((f) => `${f.name}: ${f.kcal} kcal${hasMacros(f) ? ` (P${f.protein} C${f.carbs} F${f.fat})` : ''}`),
+    todays_food: today.foods.map((f) => `${f.qty ? `${f.qty} × ` : ''}${f.name}: ${f.kcal} kcal${hasMacros(f) ? ` (P${f.protein} C${f.carbs} F${f.fat})` : ''}`),
     todays_workout_in_plan: workouts()[new Date().getDay()].t,
     personal_plan: p.plan ? { summary: p.plan.summary, week: p.plan.week.map((w) => `${w.day}: ${w.title}`) } : null,
     questionnaire: p.answers || null,
@@ -1642,8 +1676,15 @@ $('#w-form').addEventListener('submit', async (e) => {
   if (v) toast('Weight saved');
 });
 
+// Adding the same food again (e.g. tapping its chip twice) counts it up instead of adding another row
 async function addFood(item) {
-  ensureDay(viewDate).foods.push(foodItem(item));
+  const foods = ensureDay(viewDate).foods, u = unitOf(item);
+  const i = foods.findIndex((f) => f.name.toLowerCase() === u.name.toLowerCase() && Math.round(unitOf(f).kcal) === u.kcal);
+  if (i >= 0) {
+    const one = unitOf(foods[i]), qty = (foods[i].qty || 1) + 1;
+    foods[i] = foodItem(one, one.kcal * qty, qty);
+    toast(`${u.name}: now ${qty}×`);
+  } else foods.push(u);
   renderToday();
   await saveDay(viewDate, ['foods']);
 }
@@ -1806,8 +1847,8 @@ function renderReview(el, state) {
   if (state.error) { el.innerHTML = `<p class="small">${esc(state.error)}</p><div class="row gap"><button class="btn" data-act="close">Close</button></div>`; return; }
   el.items = state.items;
   el.innerHTML = `<p class="small muted">${esc(state.summary || '')}</p>
-    <ul class="list">${state.items.map((it, i) => `<li><label class="pick"><input type="checkbox" data-i="${i}" ${it.on ? 'checked' : ''}><span>${esc(it.name)}<span class="mac">${macroText(it)}</span></span></label><input class="kcal-in" type="number" min="1" max="5000" inputmode="numeric" data-k="${i}" value="${Math.round(it.kcal)}"></li>`).join('')}</ul>
-    <p class="small muted">Tick what you ate and adjust calories if needed.</p>
+    <ul class="list">${state.items.map((it, i) => `<li class="rev"><label class="pick"><input type="checkbox" data-i="${i}" ${it.on ? 'checked' : ''}><span>${esc(it.name)}<span class="mac">${macroText(it)}</span></span></label><span class="rev-amt">${qtyStep(it.qty || 1, `data-q="${i}"`)}<input class="kcal-in scales" type="number" min="1" max="5000" inputmode="numeric" data-k="${i}" value="${Math.round(it.kcal)}" aria-label="Calories"></span></li>`).join('')}</ul>
+    <p class="small muted">Tick what you ate, set how many, and adjust calories if needed.</p>
     <div class="row gap"><button class="btn primary" data-act="add">Add</button><button class="btn" data-act="close">Cancel</button></div>`;
 }
 
@@ -1855,7 +1896,8 @@ for (const panel of [$('#photo-panel'), $('#est-panel'), $('#copy-panel')]) {
     panel.querySelectorAll('[data-i]').forEach((cb) => {
       if (!cb.checked) return;
       const kcal = Math.round(numOrNull(panel.querySelector(`[data-k="${cb.dataset.i}"]`).value) || 0);
-      if (kcal > 0 && kcal <= 5000) { d.foods.push(foodItem(panel.items[+cb.dataset.i], kcal)); n++; }
+      const qty = clampQty(panel.querySelector(`[data-q="${cb.dataset.i}"]`).value);
+      if (kcal > 0 && kcal <= 5000) { d.foods.push(foodItem(panel.items[+cb.dataset.i], kcal, qty)); n++; }
     });
     if (!n) return toast('Tick at least one item');
     panel.hidden = true;
@@ -1907,10 +1949,13 @@ $('#food-list').addEventListener('submit', async (e) => {
   const kcal = numOrNull(v('kcal'));
   if (kcal == null || kcal < 0) return toast('Enter the calories');
   const item = { name: v('name').slice(0, 60) || old.name, kcal: Math.round(kcal) };
+  const qty = clampQty(v('qty'));
   const typed = MACROS.map((k) => numOrNull(v(k)));
   const macrosEdited = MACROS.some((k, j) => typed[j] !== (old[k] != null ? Math.round(old[k]) : null));
   if (macrosEdited) MACROS.forEach((k, j) => { item[k] = Math.round(typed[j] ?? 0); }); // blanks count as 0 so all three always exist
   else if (hasMacros(old)) Object.assign(item, foodItem(old, kcal), { name: item.name }); // only calories changed: macros scale with them
+  delete item.qty;
+  if (qty !== 1) item.qty = qty;
   foods[i] = item;
   editingFood = null;
   renderToday();
